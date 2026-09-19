@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Where Would I Be…?</title>
+<meta name="description" content="Fast-forward the Earth. Watch the continents drift and find out where your patch of ground ends up in a thousand — or a hundred million — years." />
+<meta name="theme-color" content="#05050c" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%23123a63'/%3E%3Cpath d='M5 13h9l3 5 8-2' stroke='%23e6d8ae' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%233ddbff' stroke-width='2'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<canvas id="globe"></canvas>
+<div id="labels" aria-hidden="true"></div>
+
+<!-- ───────────────────────────── loading ───────────────────────────── -->
+<div id="boot">
+  <div class="boot-inner">
+    <div class="boot-globe"><span></span><span></span><span></span></div>
+    <h1 class="boot-title">Where&nbsp;Would&nbsp;I&nbsp;Be<em>…?</em></h1>
+    <p class="boot-status" id="bootStatus">Winding the clock…</p>
+    <div class="boot-bar"><i id="bootBar"></i></div>
+  </div>
+</div>
+
+<!-- ───────────────────────────── chrome ────────────────────────────── -->
+<header id="topbar">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" class="brand-mark" aria-hidden="true">
+      <circle cx="16" cy="16" r="13" fill="#123a63"/>
+      <path d="M5 13h9l3 5 8-2" stroke="#e6d8ae" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <circle cx="16" cy="16" r="13" fill="none" stroke="#3ddbff" stroke-width="2"/>
+    </svg>
+    <h1>Where Would I Be<em>…?</em></h1>
+  </div>
+
+  <nav class="modes" role="tablist" aria-label="Mode">
+    <button class="mode is-on" data-mode="drift" role="tab" aria-selected="true">
+      <span class="mode-k">Fast-forward</span>
+      <span class="mode-s">where does my ground go?</span>
+    </button>
+    <button class="mode" data-mode="rendezvous" role="tab" aria-selected="false">
+      <span class="mode-k">Rendezvous</span>
+      <span class="mode-s">when do two places meet?</span>
+    </button>
+  </nav>
+
+  <div class="top-actions">
+    <button id="layersBtn" class="icon-btn" title="Layers" aria-label="Layers">
+      <svg viewBox="0 0 24 24"><path d="M12 3 3 8l9 5 9-5-9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5"/></svg>
+    </button>
+    <button id="aboutBtn" class="icon-btn" title="About" aria-label="About">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+    </button>
+  </div>
+</header>
+
+<div id="layersMenu" class="popover" hidden>
+  <h3>Layers</h3>
+  <label><input type="checkbox" data-layer="plateColors" checked><span>Plate colours</span></label>
+  <label><input type="checkbox" data-layer="plateEdges" checked><span>Plate boundaries</span></label>
+  <label><input type="checkbox" data-layer="land" checked><span>Land</span></label>
+  <label><input type="checkbox" data-layer="borders" checked><span>Country borders</span></label>
+  <label><input type="checkbox" data-layer="graticule" checked><span>Lat / long grid</span></label>
+  <label><input type="checkbox" data-layer="orbit" checked><span>Euler orbit path</span></label>
+  <h3 class="sep">Boundary key</h3>
+  <ul class="key">
+    <li><i style="--c:#ff7a3d"></i>Spreading — new crust</li>
+    <li><i style="--c:#6fa4ff"></i>Colliding — crust destroyed</li>
+    <li><i style="--c:#ffd24a"></i>Sliding past</li>
+  </ul>
+</div>
+
+<!-- ───────────────────────────── panels ────────────────────────────── -->
+<div id="panels">
+  <aside id="picker" class="panel">
+    <div id="pickerBody"></div>
+  </aside>
+
+  <aside id="readout" class="panel">
+    <div id="readoutBody"></div>
+  </aside>
+</div>
+
+<button id="sheetToggle" class="sheet-toggle" hidden><span></span></button>
+
+<!-- ─────────────────────────── time machine ────────────────────────── -->
+<footer id="timebar">
+  <div class="time-head">
+    <div class="time-now">
+      <span class="time-label" id="timeDirection">from now</span>
+      <strong class="time-value" id="timeValue">now</strong>
+      <span class="time-cal" id="timeCalendar"></span>
+    </div>
+    <div class="time-controls">
+      <button id="playBtn" class="play" aria-label="Play through time">
+        <svg viewBox="0 0 24 24" class="i-play"><path d="M8 5v14l11-7z"/></svg>
+        <svg viewBox="0 0 24 24" class="i-pause" hidden><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
+        <span>Play</span>
+      </button>
+      <button id="flipBtn" class="ghost" title="Flip between future and past">⇄ past</button>
+      <button id="nowBtn" class="ghost">Now</button>
+    </div>
+  </div>
+
+  <div class="time-track">
+    <div class="track-ticks" id="trackTicks"></div>
+    <input id="timeSlider" type="range" min="-2000" max="2000" step="1" value="0"
+           aria-label="Time offset from today" />
+    <div class="track-centre" aria-hidden="true"></div>
+  </div>
+
+  <div class="presets" id="presets"></div>
+</footer>
+
+<!-- ───────────────────────────── about ─────────────────────────────── -->
+<div id="aboutModal" class="modal" hidden>
+  <div class="modal-card">
+    <button class="modal-close" aria-label="Close">&times;</button>
+    <h2>Where Would I Be<em>…?</em></h2>
+    <p class="lede">The ground under you is moving. Not metaphorically — about as fast as
+       your fingernails grow. Wait long enough and it ends up somewhere else entirely.</p>
+
+    <h3>How it works</h3>
+    <p>Each tectonic plate behaves like a rigid cap on a sphere, turning about a fixed axis
+       called an <em>Euler pole</em>. Give a plate its pole and its rate, and the whole
+       future (and past) of every point on it is one rotation. This app uses
+       <strong>NNR-MORVEL56</strong> — 56 plates, published by Argus, Gordon &amp; DeMets in
+       2011 — together with Peter Bird's <strong>PB2002</strong> plate outlines.</p>
+    <p>Boundary colours aren't painted on. For every segment of every plate outline the app
+       samples the crust 40&nbsp;km either side, works out the relative velocity of the two
+       plates, and splits it into opening and sliding. That is why the East Pacific Rise
+       glows and the Japan Trench does not.</p>
+
+    <h3>How much to trust it</h3>
+    <p>The model describes motion averaged over roughly the last 780,000 years. Running it
+       forward assumes plates never change course, never jam, and never break — which is
+       exactly what they always do. Treat a thousand years as solid, a million as fair,
+       fifty million as a decent story, and anything past that as a very well-informed
+       daydream.</p>
+
+    <h3>Your privacy</h3>
+    <p>If you share your location it is used in the browser and nowhere else. There is no
+       server, no analytics, and no network request carrying your coordinates. The place
+       names come from a gazetteer bundled with the app.</p>
+
+    <h3>Sources</h3>
+    <ul class="sources" id="sourceList"></ul>
+
+    <p class="fineprint">Built for fun. Not for navigation, land registry, or arguing with
+       your neighbour about where the fence goes in 40 million years.</p>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script type="module" src="js/main.js"></script>
+<noscript>
+  <div class="noscript">This is a 3D globe that runs in your browser — it needs JavaScript switched on.</div>
+</noscript>
+</body>
+</html>

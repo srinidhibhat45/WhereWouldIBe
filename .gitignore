@@ -1,0 +1,6 @@
+# Raw source datasets — fetched with tools/fetch-raw.sh, not committed.
+# They are ~25 MB, and the optional English-names dump is ~800 MB.
+tools/raw/
+
+.DS_Store
+node_modules/
