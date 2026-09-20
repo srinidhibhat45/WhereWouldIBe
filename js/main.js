@@ -187,10 +187,16 @@ const nextFrame = () => new Promise((resolve) => {
 /**
  * Six line styles at once is not a map, it is a migraine — and nobody opened
  * this to be taught plate tectonics, they opened it to find out where their
- * ground goes. So the globe starts as sea, land and coastlines, and nothing
- * else. The boundaries are the most interesting thing you can add, so they get
- * the top slot in the Detail menu; switching them on brings their key with
- * them, which is the only honest way to put a coloured line on a screen.
+ * ground goes. So the globe starts as sea, land, coastlines and one thing
+ * more: the plate seams, drawn as a grey hairline.
+ *
+ * They earn the exception because they are the reason the answer is what it
+ * is. Seeing that the line runs between you and the next country over is the
+ * whole point; being told, unasked, in three colours, which way each segment
+ * of it is moving, is a lecture. So the hairline is always on and says
+ * nothing, and the Detail menu's top slot promotes it to the colour-coded
+ * version, which brings its key with it — the only honest way to put a
+ * coloured line on a screen.
  */
 function applyQuietDefaults() {
   globe.setLayerVisible('graticule', false);
@@ -200,7 +206,11 @@ function applyQuietDefaults() {
   setEdgesVisible(false);
 }
 
-/** The lines and their key are one feature, so they switch as one. */
+/**
+ * The colours and their key are one feature, so they switch as one. Off does
+ * not mean no boundaries — globe.js swaps the colour-coded network for the
+ * quiet hairline, which is never fully off.
+ */
 function setEdgesVisible(on) {
   globe.setLayerVisible('plateEdges', on);
   $('legend').hidden = !on;

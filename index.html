@@ -77,9 +77,11 @@
 </header>
 
 <!--
-  The key to the coloured lines. It only exists while the lines do — switching
-  the boundaries on brings their key with them, so there is never a moment
-  where the globe is drawing something the screen has not explained.
+  The key to the coloured lines. It only exists while the colours do —
+  switching them on brings their key with them, so there is never a moment
+  where the globe is drawing a colour the screen has not explained. The plain
+  grey hairline underneath needs no key: it is one line meaning one thing, and
+  the About panel says what.
 -->
 <div id="legend" class="legend" role="group" aria-label="Key to the boundary colours" hidden>
   <ul class="legend-list">
@@ -87,7 +89,7 @@
     <li><i style="--c:var(--crush)"></i>Crashing together</li>
     <li><i style="--c:var(--slide)"></i>Sliding past</li>
   </ul>
-  <button class="legend-off" data-act="hide-edges" aria-label="Hide the plate boundaries">&times;</button>
+  <button class="legend-off" data-act="hide-edges" aria-label="Hide the colour key and go back to plain boundaries">&times;</button>
 </div>
 
 <!-- ══════════════════ the dock, state 1: pick a place ═══════════════ -->
@@ -155,13 +157,14 @@
 <!-- ────────────────────────── globe detail menu ────────────────────── -->
 <div id="detailMenu" class="popover" role="group" aria-labelledby="detailMenuTitle" hidden>
   <h3 id="detailMenuTitle">Show on the globe</h3>
-  <label class="lead"><input type="checkbox" data-layer="plateEdges"><span>Plate boundaries<small>the coloured lines, with a key</small></span></label>
+  <label class="lead"><input type="checkbox" data-layer="plateEdges"><span>Colour the plate boundaries<small>which way each seam is moving, with a key</small></span></label>
   <label><input type="checkbox" data-layer="plateColors"><span>Tint each plate</span></label>
   <label><input type="checkbox" data-layer="land" checked><span>Land</span></label>
   <label><input type="checkbox" data-layer="borders"><span>Country borders</span></label>
   <label><input type="checkbox" data-layer="graticule"><span>Lat / long grid</span></label>
   <label><input type="checkbox" data-layer="orbit"><span>The circle your plate turns on</span></label>
-  <p class="popover-note">All off by default. The globe reads more clearly without them.</p>
+  <p class="popover-note">The plate seams are always drawn, faintly. Everything
+     else starts off — the globe reads more clearly without it.</p>
 </div>
 
 <!-- ───────────────────────────── about ─────────────────────────────── -->
@@ -178,10 +181,12 @@
        future (and past) of every point on it is one rotation. This app uses
        <strong>NNR-MORVEL56</strong> — 56 plates, published by Argus, Gordon &amp; DeMets in
        2011 — together with Peter Bird's <strong>PB2002</strong> plate outlines.</p>
-    <p>Boundary colours aren't painted on. For every segment of every plate outline the app
-       samples the crust either side, works out the relative velocity of the two plates, and
-       splits it into opening and sliding. That is why the East Pacific Rise glows and the
-       Japan Trench does not.</p>
+    <p>The faint grey line threading across the globe is where one plate ends and the next
+       begins — the seam your ground is riding on, and the reason it goes where it goes.</p>
+    <p>Switch the colours on and that same line is classified. The colours aren't painted on:
+       for every segment of every plate outline the app samples the crust either side, works
+       out the relative velocity of the two plates, and splits it into opening and sliding.
+       That is why the East Pacific Rise glows and the Japan Trench does not.</p>
 
     <h3>How much to trust it</h3>
     <p>The model describes motion averaged over roughly the last 780,000 years. Running it

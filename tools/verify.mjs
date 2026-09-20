@@ -17,6 +17,7 @@ import {
 } from '../js/tectonics.js';
 import { PlaceIndex } from '../js/places.js';
 import { closestApproach, arrivalAt } from '../js/rendezvous.js';
+import { fillPolygon } from '../js/mesh.js';
 
 const read = (f) => JSON.parse(fs.readFileSync(new URL(`../data/${f}`, import.meta.url), 'utf8'));
 const platesRaw = read('plates.json');
@@ -205,6 +206,112 @@ h('9  Deep time — Panaji, Goa');
       `   +${y.toExponential(0).padStart(5)} yr  ${r.lat.toFixed(2).padStart(7)}°N ${r.lon.toFixed(2).padStart(8)}°E` +
       `  moved ${(r.displacementKm < 10 ? r.displacementKm.toFixed(3) : r.displacementKm.toFixed(0)).padStart(7)} km  ${r.bearing.toFixed(0).padStart(3)}°`,
     );
+  }
+}
+
+/* ---------------------------------------------------------------- */
+h('10  Fills land where the land is, and nowhere else');
+{
+  // Both halves of this once failed, and neither is visible from the data:
+  // the polygons are right, it is the meshing of them that can go wrong.
+  //
+  // The triangles are lifted lon/lat triangles, so a point is inside the
+  // rendered shape if it is inside one of them on the sphere.
+  const cross = (u, v) => [u[1]*v[2]-u[2]*v[1], u[2]*v[0]-u[0]*v[2], u[0]*v[1]-u[1]*v[0]];
+  const dot3 = (u, v) => u[0]*v[0] + u[1]*v[1] + u[2]*v[2];
+  const inTri = (p, a, b, c) => {
+    if (dot3(p, a) < 0 && dot3(p, b) < 0 && dot3(p, c) < 0) return false;   // far side
+    const s1 = dot3(cross(a, b), p), s2 = dot3(cross(b, c), p), s3 = dot3(cross(c, a), p);
+    return (s1 >= 0 && s2 >= 0 && s3 >= 0) || (s1 <= 0 && s2 <= 0 && s3 <= 0);
+  };
+  const covers = (meshes, lon, lat) => {
+    const v = toVec(lon, lat), p = [v.x, v.y, v.z];
+    for (const m of meshes) {
+      const g = (k) => [m.pos[k*3], m.pos[k*3+1], m.pos[k*3+2]];
+      for (let t = 0; t < m.index.length; t += 3)
+        if (inTri(p, g(m.index[t]), g(m.index[t+1]), g(m.index[t+2]))) return true;
+    }
+    return false;
+  };
+  // Bucketed by z alone, so nothing can be lost at the ±180 seam the way a
+  // longitude index loses it. Enough to sweep the globe finely in a second.
+  const indexed = (tris) => {
+    const N = 180, band = (z) => Math.min(N - 1, Math.max(0, Math.floor((z + 1) / 2 * N)));
+    const buckets = Array.from({ length: N }, () => []);
+    tris.forEach((t, i) => {
+      const lo = band(Math.min(t[0][2], t[1][2], t[2][2]));
+      const hi = band(Math.max(t[0][2], t[1][2], t[2][2]));
+      for (let b = lo; b <= hi; b++) buckets[b].push(i);
+    });
+    return (lon, lat) => {
+      const v = toVec(lon, lat), p = [v.x, v.y, v.z];
+      for (const i of buckets[band(p[2])]) { const t = tris[i]; if (inTri(p, t[0], t[1], t[2])) return true; }
+      return false;
+    };
+  };
+  const trianglesOf = (meshes) => {
+    const out = [];
+    for (const m of meshes) {
+      const g = (k) => [m.pos[k*3], m.pos[k*3+1], m.pos[k*3+2]];
+      for (let t = 0; t < m.index.length; t += 3) out.push([g(m.index[t]), g(m.index[t+1]), g(m.index[t+2])]);
+    }
+    return out;
+  };
+
+  // (a) Land must not spill into the sea. Ear clipping cuts Afro-Eurasia's
+  // 2,472-point ring into slivers that reach across the continent; splitting
+  // those in 3D instead of in lon/lat bows them poleward, and the Siberian
+  // Arctic fills in solid.
+  const landMeshes = read('land.json').polygons
+    .map((poly) => fillPolygon(poly.r, poly.p, 0.04)).filter(Boolean);
+  const sea = [
+    ['Kara Sea',        70,  76], ['Laptev Sea',    130,  76],
+    ['north of Taymyr', 95,  79], ['Barents Sea',    40,  76],
+    ['North Pole',       0, 89.5], ['mid-Atlantic', -30,  30],
+    ['open Pacific',  -150,   0], ['Bay of Bengal',  88,  15],
+  ];
+  let spills = 0;
+  for (const [name, lon, lat] of sea) {
+    const wet = !covers(landMeshes, lon, lat);
+    if (!wet) spills++;
+    ok(wet, `${name} is drawn as sea`);
+  }
+  console.log(`   ${sea.length - spills}/${sea.length} open-water probes are still open water`);
+
+  // (b) The plate fills must leave no gap for the mantle to glow through.
+  // Away from the ±180 cut in the source polygons, every point belongs to
+  // exactly one plate and must be painted by one.
+  //
+  // The polar cap is where this breaks and it needs the fine comb to see it.
+  // The Antarctic plate wraps the pole, so its outline is closed by running
+  // along latitude −90; near a pole every distance is short, so edges that
+  // cross half the globe in longitude look perfectly short to a length test
+  // and never get split. When that happened, the gaps ran along whole
+  // parallels around −69° and a 4° sweep stepped straight over them.
+  const plateMeshes = [];
+  for (const pl of platesRaw.plates) for (const part of pl.parts) {
+    const m = fillPolygon(part, null, 0.05);
+    if (m) plateMeshes.push(m);
+  }
+  const painted = indexed(trianglesOf(plateMeshes));
+  const sweep = (latLo, latHi, dLat, dLon) => {
+    let bare = 0, n = 0, first = null;
+    for (let lat = latLo; lat <= latHi; lat += dLat)
+      for (let lon = -179; lon < 180; lon += dLon) {
+        n++;
+        if (!painted(lon, lat)) { bare++; first = first || [+lon.toFixed(1), +lat.toFixed(1)]; }
+      }
+    return { bare, n, first };
+  };
+  for (const [what, lo, hi, dLat, dLon] of [
+    ['the whole globe', -88, 88, 2, 2],
+    ['the polar caps',  -89.5, -55, 0.5, 1],
+    ['the far north',    55, 89.5, 0.5, 1],
+  ]) {
+    const r = sweep(lo, hi, dLat, dLon);
+    ok(r.bare === 0, `plate fills leave ${r.bare} of ${r.n} points bare over ${what}` +
+      (r.first ? ` (first at ${r.first[0]}, ${r.first[1]})` : ''));
+    console.log(`   ${String(r.n).padStart(6)} points over ${what}${r.bare ? ` — ${r.bare} BARE` : ', all painted'}`);
   }
 }
 

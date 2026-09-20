@@ -2,8 +2,12 @@
  * mesh.js — turning lon/lat polygons into geometry that lives on a sphere.
  *
  * Two jobs:
- *   1. Filled areas. Triangulate in lon/lat with earcut, lift onto the sphere,
- *      then refine until no edge sags noticeably below the surface. The
+ *   1. Filled areas. Triangulate in lon/lat with earcut, then refine in that
+ *      same lon/lat plane until no edge strays noticeably from the line it
+ *      stands for, lifting each new vertex onto the sphere as it is made.
+ *      Refining in lon/lat rather than in 3D is the whole ball game, and so is
+ *      measuring the straying rather than the length — see midpoint() and
+ *      sag2(), which between them are why the coastlines hold. The
  *      refinement is conforming — a triangle splits whenever any neighbour
  *      split one of its edges — so the mesh stays watertight and no cracks
  *      open up between continents.
@@ -16,7 +20,13 @@
 import earcut from '../vendor/earcut.js';
 import { toVec, toLonLat, normalize, cross, sub, len, dot } from './tectonics.js';
 
-/** Largest chord (as a fraction of the radius) we allow before splitting. */
+/**
+ * How coarse a straight piece of geometry may get, as a fraction of the
+ * radius. For lines it is what it says: no segment chords further than this.
+ * Fills turn it into a sag tolerance instead — see refine() — because for a
+ * filled polygon it is not the length of an edge that shows, it is how far the
+ * edge strays from where it ought to be.
+ */
 const DEFAULT_MAX_CHORD = 0.045;   // ~2.6° of arc
 
 /* ---------------------------- filled polygons ---------------------------- */
@@ -56,55 +66,107 @@ export function fillPolygon(rings, ringPayload, maxChord = DEFAULT_MAX_CHORD) {
     const v = toVec(coords[i], coords[i + 1]);
     pos.push(v.x, v.y, v.z);
   }
-  return refine({ pos, payload, index: Array.from(tris) }, maxChord);
+  // `coords` rides along: refinement has to interpolate in lon/lat, not in 3D.
+  return refine({ pos, ll: coords, payload, index: Array.from(tris) }, maxChord);
 }
 
 /**
  * Conforming refinement, red–green style.
  *
- * Each pass splits only the edges that are actually too long. A triangle with
+ * Each pass splits only the edges that actually sag too far. A triangle with
  * all three edges split becomes four ("red"); one with one or two split edges
  * is cut into two or three ("green") so that no vertex is ever left hanging in
  * the middle of a neighbour's edge. Without the green cases, marking one edge
  * would cascade across the entire mesh and the triangle count would explode.
  */
 function refine(mesh, maxChord) {
-  const { pos, payload } = mesh;
+  const { pos, ll, payload } = mesh;
   let index = mesh.index;
-  const maxChord2 = maxChord * maxChord;
   const KEY = 8388608;
   const key = (a, b) => (a < b ? a * KEY + b : b * KEY + a);
 
-  const chord2 = (a, b) => {
-    const dx = pos[a * 3] - pos[b * 3];
-    const dy = pos[a * 3 + 1] - pos[b * 3 + 1];
-    const dz = pos[a * 3 + 2] - pos[b * 3 + 2];
+  // The most a flat edge may sit away from the curve it stands in for, as a
+  // fraction of the radius. Twice the sag a chord of `maxChord` would have on
+  // a great circle: that lands the finished mesh at about the size the old
+  // length test produced, so the change here is what is measured, not how much
+  // of it there is. At ~6e-4 the worst edge is still under a pixel with the
+  // globe zoomed in far enough to fill the screen.
+  const maxDev = 2 * (1 - Math.cos(maxChord / 2));
+  const maxDev2 = maxDev * maxDev;
+
+  /**
+   * How far off is the straight edge a-b from the lon/lat line it represents?
+   *
+   * Measuring the chord's *length* is the obvious test and it is the wrong
+   * one, because length is not what goes wrong. Near a pole every distance is
+   * short: the Antarctic plate's outline is closed by running along lat -90,
+   * so its polar triangles have edges that cross half the globe in longitude
+   * while measuring almost nothing in kilometres. A length test does chase
+   * those down, but far too slowly — halving such an edge barely shortens its
+   * chord at first — and it gives up long before it is done. Left short, the
+   * flat triangles drawn through them missed whole parallels of the plate and
+   * the mantle glowed through the gaps.
+   *
+   * So compare the two midpoints instead: where the lon/lat line actually goes
+   * at its halfway point, against where the straight edge is. That is the sag,
+   * measured rather than inferred, and it settles the polar case and the
+   * ordinary one with the same number. Measured on the plate outlines: sag
+   * closes every gap in seven passes and 95k triangles; length needs twelve
+   * passes and 147k to reach the same zero, and leaves 508 bare samples if you
+   * stop it at seven.
+   */
+  const sag2 = (a, b) => {
+    const v = toVec((ll[a * 2] + ll[b * 2]) / 2, (ll[a * 2 + 1] + ll[b * 2 + 1]) / 2);
+    const dx = v.x - (pos[a * 3] + pos[b * 3]) / 2;
+    const dy = v.y - (pos[a * 3 + 1] + pos[b * 3 + 1]) / 2;
+    const dz = v.z - (pos[a * 3 + 2] + pos[b * 3 + 2]) / 2;
     return dx * dx + dy * dy + dz * dz;
   };
 
+  /**
+   * Split an edge at its lon/lat midpoint — *not* at its 3D midpoint.
+   *
+   * earcut triangulated in the lon/lat plane, so every edge it emitted means
+   * "the straight line between these two points in lon/lat". Halving in 3D and
+   * re-normalising means something else entirely: it walks the edge along a
+   * great circle. For the short edges of a coastline the two are the same to
+   * within a pixel, but ear clipping also emits slivers that reach clean
+   * across a continent, and a great circle between two mid-latitude points
+   * bows a long way toward the pole. Afro-Eurasia is one 2,472-point ring, and
+   * its slivers bowed far enough to paint the Kara and Laptev Seas as land.
+   *
+   * Interpolating in lon/lat keeps every refined edge on the line earcut
+   * actually drew, so the triangles converge on the polygon instead of on its
+   * spherical namesake.
+   */
   const midpoint = (a, b, cache) => {
     const k = key(a, b);
     let id = cache.get(k);
     if (id !== undefined) return id;
-    const x = (pos[a * 3] + pos[b * 3]) / 2;
-    const y = (pos[a * 3 + 1] + pos[b * 3 + 1]) / 2;
-    const z = (pos[a * 3 + 2] + pos[b * 3 + 2]) / 2;
-    const m = Math.hypot(x, y, z) || 1;
+    const lon = (ll[a * 2] + ll[b * 2]) / 2;
+    const lat = (ll[a * 2 + 1] + ll[b * 2 + 1]) / 2;
+    const v = toVec(lon, lat);
     id = pos.length / 3;
-    pos.push(x / m, y / m, z / m);
+    ll.push(lon, lat);
+    pos.push(v.x, v.y, v.z);
     payload.push(payload[a]);
     cache.set(k, id);
     return id;
   };
 
-  for (let pass = 0; pass < 7; pass++) {
+  // Twelve rather than seven, which is headroom and not the fix: sag2 already
+  // has the gaps closed by pass seven. Every polygon but one breaks out before
+  // pass eight; the Antarctic plate, whose outline wraps the pole, is still
+  // refining at ten. Letting it finish rather than cutting it off mid-fan costs
+  // about one per cent more triangles.
+  for (let pass = 0; pass < 12; pass++) {
     const cache = new Map();
     let split = false;
-    // Every over-long edge gets a midpoint, shared by both adjacent triangles.
+    // Every edge that sags too far gets a midpoint, shared by both neighbours.
     for (let t = 0; t < index.length; t += 3) {
       for (let e = 0; e < 3; e++) {
         const a = index[t + e], b = index[t + ((e + 1) % 3)];
-        if (chord2(a, b) > maxChord2) { midpoint(a, b, cache); split = true; }
+        if (sag2(a, b) > maxDev2) { midpoint(a, b, cache); split = true; }
       }
     }
     if (!split) break;

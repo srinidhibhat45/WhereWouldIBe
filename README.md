@@ -37,11 +37,13 @@ is a fixed height for its entire life and the sentence patches its own text
 nodes, so a 200-step scrub produces **zero** DOM insertions and not one pixel
 of layout change.
 
-The globe starts quiet: sea, land and coastlines. That is all. Plate
-boundaries, plate tints, the lat/long grid, country borders and the Euler orbit
-are all off by default behind the layers button — and switching the boundaries
-on brings their key on screen with them, since a coloured line nobody can read
-is just noise.
+The globe starts quiet: sea, land, coastlines, and the plate seams as a grey
+hairline. The seams earn their place because they are the reason the answer is
+what it is — but being told, unasked, in three colours, which way each segment
+of each one is moving is a lecture, so that is a choice. Plate tints, the
+lat/long grid, country borders and the Euler orbit are all off by default
+behind the layers button, and switching the boundary colours on brings their
+key on screen with them, since a coloured line nobody can read is just noise.
 
 Everything runs in the browser. There is no server, no analytics, and if you
 share your location it never leaves your device.
@@ -152,9 +154,27 @@ its own plate. Lines are ribbons of quads rather than `GL_LINES`, because WebGL
 ignores `lineWidth` — and because a ribbon's sideways offset can be rotated by
 the same quaternion, so lines stay glued to moving crust.
 
-Filled areas are triangulated with earcut in lon/lat, lifted onto the sphere,
-then refined red–green style until no edge sags visibly below the surface. The
-refinement is conforming, so continents do not crack apart along seams.
+Filled areas are triangulated with earcut in lon/lat and then refined
+red–green style, conforming, so continents do not crack apart along seams. Two
+details in there are load-bearing, and both were once wrong:
+
+Refinement happens **in the lon/lat plane**, not in 3D. earcut's edges mean
+"straight in lon/lat"; splitting one at its 3D midpoint walks it along a great
+circle instead, which for the continent-spanning slivers ear clipping likes to
+emit bows tens of degrees poleward. Afro-Eurasia is a single 2,472-point ring,
+and its slivers used to bow far enough to paint the Kara and Laptev Seas as
+dry land.
+
+An edge splits when it **sags** too far, not when it is too long. Near a pole
+every distance is short, so an edge can cross half the globe in longitude and
+still look brief to a length test — and the Antarctic plate's outline is closed
+by running along latitude −90. A length test does chase those down, but far too
+slowly, and gives up before it is done: left coarse, the flat geometry drawn
+through them missed whole parallels, which the mantle glowed through.
+Comparing the lon/lat midpoint against the straight edge's midpoint measures
+the error instead of inferring it. On the plate outlines that is 95k triangles
+and no gaps in seven passes, against 147k and twelve for the length test — so
+the finished mesh is smaller than the one the bug shipped with.
 
 As you run the clock forward, plates pull apart and overlap. The gaps are real
 — that is where new sea floor would be made — so they show the dark abyss

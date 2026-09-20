@@ -16,7 +16,8 @@
  *   1.000  plate fills (+ a hair per plate, to stop z-fighting on overlap)
  *   1.004  land
  *   1.005  coastlines, country borders
- *   1.007  plate edges
+ *   1.007  plate edges (the quiet hairline and the colour-coded version share
+ *          this radius; only ever one of them is on)
  *   1.013  graticule
  */
 
@@ -146,11 +147,18 @@ const RIBBON_FRAG = /* glsl */`
   uniform float uOpacity;
   uniform float uGain;
   uniform float uShadeMix;
+  uniform vec3 uTone;
+  uniform float uToneMix;
   varying vec3 vNormal;
   varying vec3 vColor;
   void main() {
+    // uToneMix pulls the line towards one flat colour. At 0 the kinematic
+    // colours come through in full; near 1 the whole network turns grey. The
+    // quiet always-on boundaries sit high on that scale but not at the top, so
+    // a ridge still reads faintly warm and a trench faintly cool.
+    vec3 col = mix(vColor, uTone, uToneMix);
     float s = mix(1.0, surfaceShade(vNormal), uShadeMix);
-    gl_FragColor = vec4(vColor * uGain * s, uOpacity);
+    gl_FragColor = vec4(col * uGain * s, uOpacity);
     #include <colorspace_fragment>
   }
 `;
@@ -217,7 +225,8 @@ export class Globe {
     return m;
   }
 
-  _ribbonMaterial({ radius, width, opacity = 1, gain = 1, rotate = true, shadeMix = 1, blending, depthWrite = true }) {
+  _ribbonMaterial({ radius, width, opacity = 1, gain = 1, rotate = true, shadeMix = 1,
+                    blending, depthWrite = true, tone = '#ffffff', toneMix = 0 }) {
     const m = new THREE.ShaderMaterial({
       vertexShader: RIBBON_VERT(rotate),
       fragmentShader: RIBBON_FRAG,
@@ -229,6 +238,8 @@ export class Globe {
         uOpacity: { value: opacity },
         uGain: { value: gain },
         uShadeMix: { value: shadeMix },
+        uTone: { value: srgb(tone) },
+        uToneMix: { value: toneMix },
       },
       transparent: true,
       depthWrite,
@@ -454,12 +465,27 @@ export class Globe {
     this.plateEdgeMat = this._ribbonMaterial({
       radius: R_EDGE, width: 0.0022, opacity: 0.95, gain: 1.25, shadeMix: 0.35, depthWrite: false,
     });
+    // The same network, drawn quietly, and on from the start.
+    //
+    // Without it the globe answers "where does your ground go?" while hiding
+    // the seams that decide the answer. With the full colour key on it answers
+    // a louder question than most people asked. So the seams are always there
+    // as a hairline — mid-grey, which is darker than the land and lighter than
+    // the sea floor, so it holds on both without lighting either up — and the
+    // menu promotes that same line to the colour-coded version.
+    this.plateEdgeHintMat = this._ribbonMaterial({
+      radius: R_EDGE, width: 0.0011, opacity: 0.34, gain: 1.0, shadeMix: 0.6,
+      tone: '#9aa3b8', toneMix: 0.74, depthWrite: false,
+    });
+    this.layers.plateEdgeHint = new THREE.Mesh(g, this.plateEdgeHintMat);
     this.layers.plateEdgeGlow = new THREE.Mesh(g, this.plateEdgeGlowMat);
     this.layers.plateEdges = new THREE.Mesh(g, this.plateEdgeMat);
+    this.layers.plateEdgeHint.frustumCulled = false;
     this.layers.plateEdgeGlow.frustumCulled = this.layers.plateEdges.frustumCulled = false;
+    this.layers.plateEdgeHint.renderOrder = 3;
     this.layers.plateEdgeGlow.renderOrder = 3;
     this.layers.plateEdges.renderOrder = 4;
-    this.scene.add(this.layers.plateEdgeGlow, this.layers.plateEdges);
+    this.scene.add(this.layers.plateEdgeHint, this.layers.plateEdgeGlow, this.layers.plateEdges);
   }
 
   _buildLand(land) {
@@ -565,8 +591,11 @@ export class Globe {
   setLayerVisible(name, visible) {
     if (name === 'borders') { this._bordersOn = visible; this.layers.borders.visible = visible; return; }
     if (name === 'plateEdges') {
+      // Not on/off: quiet or explained. The hairline steps aside so the two
+      // never draw over each other at the same radius.
       this.layers.plateEdges.visible = visible;
       this.layers.plateEdgeGlow.visible = visible;
+      this.layers.plateEdgeHint.visible = !visible;
       return;
     }
     if (name === 'graticule') { this.graticule.visible = visible; return; }
