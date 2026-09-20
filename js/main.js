@@ -767,6 +767,14 @@ let playFrom = 0, playTo = 0, playStart = 0;
 const PLAY_MS = 7200;
 const easeInOut = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
 
+function setPlayButton(playing) {
+  const b = $('playBtn');
+  b.querySelector('.i-play').hidden = playing;
+  b.querySelector('.i-pause').hidden = !playing;
+  b.setAttribute('aria-label', playing ? 'Stop' : 'Play through time');
+  b.classList.toggle('is-playing', playing);
+}
+
 function togglePlay() {
   if (state.playing) return stopPlaying();
   let target = state.years;
@@ -775,17 +783,13 @@ function togglePlay() {
   playTo = yearsToSlider(target);
   playStart = performance.now();
   state.playing = true;
-  $('playBtn').querySelector('.i-play').hidden = true;
-  $('playBtn').querySelector('.i-pause').hidden = false;
-  $('playBtn').querySelector('span').textContent = 'Stop';
+  setPlayButton(true);
 }
 
 function stopPlaying() {
   if (!state.playing) return;
   state.playing = false;
-  $('playBtn').querySelector('.i-play').hidden = false;
-  $('playBtn').querySelector('.i-pause').hidden = true;
-  $('playBtn').querySelector('span').textContent = 'Play';
+  setPlayButton(false);
 }
 
 /** Round to something that reads cleanly instead of 49,999,872 years. */
@@ -847,9 +851,25 @@ function restoreFromHash() {
 
 /* -------------------------------- the loop -------------------------------- */
 
+/**
+ * The frame loop.
+ *
+ * The next frame is booked BEFORE any work is done, and the work is wrapped.
+ * A throw in here used to take the whole app with it — the globe stopped
+ * rendering, the camera stopped updating, and so zooming and dragging died
+ * along with it. A frozen planet is a terrible way to report a typo.
+ */
 function startLoop() {
   let last = performance.now();
+  let complained = false;
   const frame = (now) => {
+    requestAnimationFrame(frame);
+    try { step(now); } catch (err) {
+      if (!complained) { complained = true; console.error('frame failed', err); }
+    }
+  };
+
+  const step = (now) => {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
 
@@ -868,9 +888,8 @@ function startLoop() {
     controls.update(dt);
     globe.render(now / 1000);
     updateLabels();
-
-    requestAnimationFrame(frame);
   };
+
   requestAnimationFrame(frame);
 }
 

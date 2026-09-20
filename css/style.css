@@ -100,7 +100,7 @@ button { cursor: pointer; border: 0; background: none; }
 }
 #topbar > * { pointer-events: auto; }
 
-.brand { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.brand { display: flex; align-items: center; gap: 9px; flex: none; }
 .brand-mark { width: 26px; height: 26px; flex: none; }
 .brand h1 {
   margin: 0;
@@ -109,14 +109,20 @@ button { cursor: pointer; border: 0; background: none; }
   white-space: nowrap;
 }
 .brand h1 em { font-style: normal; color: var(--now); }
-body.stage-explore .brand { display: none; }
+
+/* The mark stays put at every size and in every stage — it is the only thing
+   on screen that says what this is. The wordmark is the part that gives way,
+   and only where the place chip genuinely needs the room. */
+@media (max-width: 620px) {
+  body.stage-explore .brand h1 { display: none; }
+}
 
 .here-chip {
   display: none;
   align-items: center;
   gap: 8px;
   min-width: 0;
-  max-width: calc(100% - 96px);
+  flex: 0 1 auto;
   padding: 7px 8px 7px 12px;
   border-radius: 999px;
   background: var(--panel);
@@ -375,6 +381,20 @@ body.stage-explore #start {
 .a-line .cy { color: var(--now); }
 .a-line strong { font-weight: 700; color: var(--then); }
 
+.a-meta {
+  /* Three facts, one line, deliberately quiet: it is there for the glance you
+     take after reading the sentence, not instead of it. */
+  margin: 5px 0 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.a-meta:empty { display: none; }
+
 /* ------------------------------- the clock ------------------------------- */
 
 .time-row { display: flex; align-items: center; gap: 10px; }
@@ -438,6 +458,7 @@ body.stage-explore #start {
   transition: transform .12s var(--ease);
 }
 .play:hover { transform: scale(1.06); }
+.play.is-playing { background: var(--then); color: #1a0409; }
 .play svg { width: 19px; height: 19px; fill: currentColor; }
 
 .presets {
@@ -893,11 +914,6 @@ body.stage-explore #start {
 .glabel.below { padding: 9px 0 0; }
 
 /* ============================== narrow ================================== */
-
-@media (max-width: 560px) {
-  /* The picker's own headline says this already. */
-  .brand h1 { display: none; }
-}
 
 @media (max-width: 460px) {
   .start-title { font-size: 21px; }

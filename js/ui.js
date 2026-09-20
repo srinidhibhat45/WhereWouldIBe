@@ -16,7 +16,7 @@
 import {
   formatYears, formatYearsShort, formatDistance, distanceComparison,
   formatSpeed, speedComparison, formatCoords, formatDMS, formatPopulation,
-  formatArea, epochNote, comma, signed,
+  formatArea, epochNote, comma, signed, calendarYear,
 } from './format.js';
 import { climateBand, project, distanceKm, compass } from './tectonics.js';
 import { verdict } from './rendezvous.js';
@@ -73,6 +73,7 @@ export function driftFacts(state) {
       mid: ' is creeping ',
       key: longhand(r.heading),
       tail: ` at ${formatSpeed(r.speedMmYr)}.`,
+      meta: metaLine(origin, r, bandNow, band),
       lat: latText,
       lon: lonText,
       shift: 'where it sits today',
@@ -85,6 +86,7 @@ export function driftFacts(state) {
   }
 
   const ago = years < 0;
+  const cal = calendarYear(years);
   const climateChanged = band.name !== bandNow.name;
   const latShift = r.lat - origin.lat;
   // Where it ended up relative to today, not which way the plate is heading —
@@ -98,9 +100,10 @@ export function driftFacts(state) {
     key: formatDistance(r.displacementKm),
     tail: ` to the ${longhand(went)}${
       climateChanged ? `, ${ago ? 'back then in' : 'in'} ${band.zone}` : ''}.`,
+    meta: metaLine(origin, r, bandNow, band),
     lat: latText,
     lon: lonText,
-    shift: `${signed(latShift, 1)}° of latitude`,
+    shift: `${cal ? `${cal} · ` : ''}${signed(latShift, 1)}° of latitude`,
     k1: ago ? 'It has moved' : 'It travels',
     v1: formatDistance(r.displacementKm),
     s1: distanceComparison(r.displacementKm) || '',
@@ -112,13 +115,24 @@ export function driftFacts(state) {
   };
 }
 
+/**
+ * The quiet line under the sentence: which slab you are riding, how fast, and
+ * what the weather does to you. Three facts, always in that order, always one
+ * line — enough to be worth a glance, not enough to be a paragraph. Everything
+ * else stays in the sheet.
+ */
+function metaLine(origin, r, bandNow, band) {
+  const climate = band.name === bandNow.name ? band.name : `${bandNow.name} → ${band.name}`;
+  return `${origin.plate.name} plate · ${formatSpeed(r.speedMmYr)} · ${climate}`;
+}
+
 /* =========================== the one-line answer ========================= */
 
 /**
  * What the dock says. Both modes reduce to the same two strings, because the
  * dock has room for exactly two strings and no more.
  */
-const EMPTY = { kicker: '', who: '', mid: '', key: '', tail: '' };
+const EMPTY = { kicker: '', who: '', mid: '', key: '', tail: '', meta: '' };
 
 export function barFacts(state) {
   if (!state.origin) return EMPTY;
@@ -128,6 +142,7 @@ export function barFacts(state) {
   if (!destination) {
     return { ...EMPTY,
       kicker: 'Two places',
+      meta: `${origin.plate.name} plate · waiting for a second place`,
       who: origin.name,
       tail: ' needs a partner. Pick a second place and we’ll work out when'
           + ' the two of them come closest.',
@@ -136,7 +151,14 @@ export function barFacts(state) {
   const res = state.rendezvous;
   if (!res) return { ...EMPTY, kicker: 'Working…' };
   const v = verdict(res);
-  return { ...EMPTY, kicker: v.headline, tail: v.detail };
+  return { ...EMPTY,
+    kicker: v.headline,
+    tail: v.detail,
+    meta: res.sameplate
+      ? `Both on the ${origin.plate.name} plate · locked together`
+      : `${origin.plate.name} & ${destination.plate.name} plates · ${
+          comma(res.nowKm)} km apart today`,
+  };
 }
 
 /* ============================== the sheet =============================== */
