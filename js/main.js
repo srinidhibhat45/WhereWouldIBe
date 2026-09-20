@@ -23,7 +23,7 @@ import { closestApproach, arrivalAt, distanceSeries } from './rendezvous.js';
 import {
   renderSheet, renderSearchResults, driftFacts, barFacts, patch, neighbourBody, esc,
 } from './ui.js';
-import { formatYearsShort, formatYears, calendarYear, formatDistance } from './format.js';
+import { formatYearsShort, formatDistance } from './format.js';
 
 /* ------------------------------ time mapping ----------------------------- */
 
@@ -64,6 +64,8 @@ const state = {
 
 let model, placeIndex, globe, controls, markers;
 const $ = (id) => document.getElementById(id);
+/* Honoured for the idle spin and for Play, not just for CSS transitions. */
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const labelEls = new Map();
 
 /** Which detail folds the reader has opened — kept across re-renders. */
@@ -145,7 +147,11 @@ async function boot() {
     // geology; people should be able to take it apart.
     window.wwib = { state, model, placeIndex, globe, controls, markers, setYears, setAnchor, makeAnchor };
     console.log('BOOT', Math.round(performance.now() - t0) + 'ms |', marks.join(' | '), '| layers', JSON.stringify(globe.buildTimes));
-    setTimeout(() => $('boot').classList.add('done'), 320);
+    setTimeout(() => {
+      $('boot').classList.add('done');
+      // opacity:0 still reads aloud and still takes focus. Remove it properly.
+      setTimeout(() => { $('boot').hidden = true; }, 600);
+    }, 320);
   } catch (err) {
     console.error(err);
     status.innerHTML = 'Could not start.';
@@ -344,7 +350,7 @@ function setStage(stage) {
   lastDockH = -1;                 // the other dock is a different height
   syncDockHeight();
   // The globe turns gently while you are choosing, and holds still while you read.
-  controls.autoRotate = stage === 'pick' && !state.origin;
+  controls.autoRotate = stage === 'pick' && !state.origin && !reduceMotion.matches;
   if (stage === 'pick') {
     $('searchResults').innerHTML = '';
     $('searchInput').value = '';
@@ -469,6 +475,8 @@ function setYears(y, { fromSlider = false } = {}) {
   markers.update(y);
 
   $('nowBtn').hidden = y === 0;
+  $('timeSlider').setAttribute('aria-valuetext', y === 0 ? 'today'
+    : `${formatYearsShort(Math.abs(y))} ${y > 0 ? 'from now' : 'ago'}`);
   if (!fromSlider) $('timeSlider').value = String(Math.round(yearsToSlider(y)));
   for (const b of $('presets').children) {
     b.classList.toggle('is-on', Math.abs(Math.abs(y) - Number(b.dataset.years)) < 1);
@@ -527,7 +535,8 @@ function updateLabels() {
     el.classList.toggle('below', !!style.below);
     el.classList.toggle('hide', !p.visible);
     const sub = style.sub();
-    const html = `${esc(style.text())}${sub ? `<small>${esc(sub)}</small>` : ''}`;
+    // Wrapped so the backdrop hugs the words rather than the label's whole box.
+    const html = `<span>${esc(style.text())}${sub ? `<small>${esc(sub)}</small>` : ''}</span>`;
     if (el.dataset.h !== html) { el.innerHTML = html; el.dataset.h = html; }
   }
   for (const [id, el] of labelEls) {
@@ -570,8 +579,9 @@ function bindEvents() {
       if (first) first.click();
     }
     if (e.key === 'Escape') {
+      if (!$('aboutModal').hidden) return closeModal();
       if (!$('sheet').hidden) return closeSheet();
-      closeModal();
+      $('detailBtn').setAttribute('aria-expanded', 'false');
       $('detailMenu').hidden = true;
       if (state.stage === 'pick' && state.origin) setStageAndRender('explore');
     }
@@ -598,16 +608,54 @@ function bindEvents() {
     setAnchor(slot, makeAnchor(hit.lon, hit.lat), { fly: false });
   });
 
+  /*
+   * The globe answers the keyboard as well as the mouse. Without this, turning
+   * and zooming the planet were mouse-only — and dropping a pin by tapping it
+   * had no keyboard equivalent at all.
+   */
+  $('globe').addEventListener('keydown', (e) => {
+    const c = controls;
+    const step = e.shiftKey ? 18 : 6;
+    const keys = {
+      ArrowLeft:  () => { c.target.lon -= step; },
+      ArrowRight: () => { c.target.lon += step; },
+      ArrowUp:    () => { c.target.lat = Math.min(88, c.target.lat + step); },
+      ArrowDown:  () => { c.target.lat = Math.max(-88, c.target.lat - step); },
+      '+':        () => { c.target.dist = Math.max(c.minDist, c.target.dist * 0.85); },
+      '=':        () => { c.target.dist = Math.max(c.minDist, c.target.dist * 0.85); },
+      '-':        () => { c.target.dist = Math.min(c.maxDist, c.target.dist / 0.85); },
+      Home:       () => { c.flyTo({ lon: c.lon, lat: c.lat, dist: c.fitDist }, 500); },
+    };
+    if (keys[e.key]) {
+      e.preventDefault();
+      c.flight = null;
+      keys[e.key]();
+      c.lastInteraction = performance.now();
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const { x, y } = globe.centreOfView();
+      const hit = globe.pick(x, y);
+      if (!hit) return toast('Point somewhere on the globe first.');
+      const slot = state.mode === 'compare' && state.pickTarget === 'dest' ? 'dest' : 'origin';
+      setAnchor(slot, makeAnchor(hit.lon, hit.lat), { fly: false });
+    }
+  });
+
   $('detailBtn').addEventListener('click', (e) => {
     e.stopPropagation();
     const m = $('detailMenu');
     m.hidden = !m.hidden;
     $('detailBtn').classList.toggle('is-on', !m.hidden);
+    $('detailBtn').setAttribute('aria-expanded', String(!m.hidden));
+    if (!m.hidden) m.querySelector('input')?.focus();
   });
   $('detailMenu').addEventListener('click', (e) => e.stopPropagation());
   document.addEventListener('click', () => {
     $('detailMenu').hidden = true;
     $('detailBtn').classList.remove('is-on');
+    $('detailBtn').setAttribute('aria-expanded', 'false');
   });
   $('detailMenu').addEventListener('change', (e) => {
     const layer = e.target.dataset.layer;
@@ -616,7 +664,11 @@ function bindEvents() {
     else globe.setLayerVisible(layer, e.target.checked);
   });
 
-  $('aboutBtn').addEventListener('click', () => { $('aboutModal').hidden = false; });
+  $('aboutBtn').addEventListener('click', openModal);
+  $('aboutModal').addEventListener('keydown', (e) => trapFocus($('aboutModal'), e));
+  $('sheet').addEventListener('keydown', (e) => {
+    if (sheetIsModal()) trapFocus($('sheet'), e);
+  });
   $('aboutModal').addEventListener('click', (e) => {
     if (e.target.id === 'aboutModal' || e.target.classList.contains('modal-close')) closeModal();
   });
@@ -631,22 +683,78 @@ function bindEvents() {
   window.addEventListener('hashchange', restoreFromHash);
 }
 
-const closeModal = () => { $('aboutModal').hidden = true; };
+/* ------------------------- focus and overlays ---------------------------- */
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
+
+/** Everything that is not the overlay, so it can be switched off underneath. */
+const backdropParts = () => ['topbar', 'timebar', 'start', 'legend'].map($);
+
+/**
+ * Keep Tab inside `el`. Only used where the overlay really is modal — the
+ * about dialog always, the details sheet only on a narrow screen, where it
+ * covers the page and has a scrim over everything behind it.
+ */
+function trapFocus(el, e) {
+  if (e.key !== 'Tab') return;
+  const items = [...el.querySelectorAll(FOCUSABLE)].filter((n) => n.offsetParent !== null);
+  if (!items.length) return;
+  const first = items[0], last = items[items.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+}
+
+let returnFocusTo = null;
+function rememberFocus() { returnFocusTo = document.activeElement; }
+function restoreFocus() {
+  const el = returnFocusTo;
+  returnFocusTo = null;
+  if (el && document.contains(el) && el.offsetParent !== null) el.focus();
+}
+
+function setBackdropInert(on) {
+  for (const el of backdropParts()) { if (el) el.inert = on; }
+}
+
+const closeModal = () => {
+  if ($('aboutModal').hidden) return;
+  $('aboutModal').hidden = true;
+  setBackdropInert(false);
+  restoreFocus();
+};
+
+function openModal() {
+  rememberFocus();
+  $('aboutModal').hidden = false;
+  setBackdropInert(true);
+  $('aboutModal').querySelector('.modal-card').focus();
+}
 
 /* The sheet is the only thing allowed to cover the globe, and only for as long
    as the reader is deliberately holding it open. */
+/** On a phone the sheet covers the page and has a scrim; on a wide screen it
+    is a column beside the globe and the rest of the page stays live. */
+const sheetIsModal = () => getComputedStyle($('scrim')).display !== 'none';
+
 function openSheet() {
+  if (!$('sheet').hidden) return;
+  rememberFocus();
   renderSheetBody({ force: true });
   $('sheet').hidden = false;
   $('scrim').hidden = false;
+  if (sheetIsModal()) setBackdropInert(true);
   syncDockHeight();
+  $('sheet').focus();
   refreshFoldsSoon();
 }
+
 function closeSheet() {
   if ($('sheet').hidden) return;
   $('sheet').hidden = true;
   $('scrim').hidden = true;
+  setBackdropInert(false);
   syncDockHeight();
+  restoreFocus();
 }
 
 function setStageAndRender(stage) {
@@ -779,16 +887,23 @@ function togglePlay() {
   if (state.playing) return stopPlaying();
   let target = state.years;
   if (Math.abs(target) < 1) target = 5e7;
+  // "Play" is a seven-second animation. If the reader has asked for less of
+  // that, give them the destination instead of the journey.
+  if (reduceMotion.matches) { setYears(roundYears(target)); return writeHash(); }
   playFrom = 0;
   playTo = yearsToSlider(target);
   playStart = performance.now();
   state.playing = true;
+  // Announcing 400 intermediate sentences is not an accessible experience.
+  // Go quiet for the run, then announce the place it lands on.
+  $('answerBar').setAttribute('aria-live', 'off');
   setPlayButton(true);
 }
 
 function stopPlaying() {
   if (!state.playing) return;
   state.playing = false;
+  $('answerBar').setAttribute('aria-live', 'polite');
   setPlayButton(false);
 }
 

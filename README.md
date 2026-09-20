@@ -67,6 +67,45 @@ To check the science still holds:
 node tools/verify.mjs
 ```
 
+### Deploying
+
+There is nothing to build, so any static host will do. The repo is set up for
+Vercel: `vercel.json` carries the cache policy and the security headers,
+including a CSP tight enough to be worth having (`script-src 'self'` — the only
+third party the app talks to is Google Fonts).
+
+Import the repo on Vercel with **Framework Preset: Other**, no build command,
+and the output directory left as the repo root. Then point the domain at it.
+
+One header matters more than the rest:
+
+```
+Permissions-Policy: geolocation=(self)
+```
+
+"Use my location" is the app's front door. A blanket `geolocation=()` — which
+several header-hardening presets hand you — switches it off silently.
+
+### Accessibility
+
+Built to WCAG 2.2 AA and checked rather than assumed:
+
+- Every colour token clears 4.5:1 against the dock at its worst case, which is
+  the 92%-opaque glass sitting over the brightest land on the globe. `--faint`
+  is the tight one at 4.7:1 and must not get darker.
+- The globe is fully keyboard-operable — arrows turn it, `+`/`-` zoom, `Home`
+  reframes, `Enter` drops a pin at the centre of the view. Nothing on it is the
+  only route to a fact; the sentence and the sheet say it all in text too.
+- The answer is a `role="status"` region, so it is announced when it changes —
+  and silenced for the duration of Play, which would otherwise narrate several
+  hundred intermediate sentences.
+- The details sheet and the about dialog take focus, trap `Tab` while they are
+  genuinely modal, close on `Escape`, and hand focus back where it came from.
+  The page behind a modal sheet is `inert`.
+- `prefers-reduced-motion` stops the idle spin and turns Play into a jump
+  straight to the destination.
+- Every pointer target is at least 24x24 CSS px.
+
 ---
 
 ## How it works

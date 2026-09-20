@@ -673,6 +673,18 @@ export class Globe {
     this.camera.updateProjectionMatrix();
   }
 
+  /**
+   * Client coordinates of the point on the globe facing the camera — i.e. what
+   * is dead centre of the view, allowing for the frame offset. Keyboard users
+   * drop their pin here, so it has to agree with what the eye calls "middle".
+   */
+  centreOfView() {
+    const r = this.canvas.getBoundingClientRect();
+    const dy = (((this._frameBottom || 0) - (this._frameTop || 0)) / 2) | 0;
+    const dx = ((this._frameRight || 0) / 2) | 0;
+    return { x: r.left + r.width / 2 - dx, y: r.top + r.height / 2 - dy };
+  }
+
   render(elapsed) {
     // Keep the lit side towards the viewer, offset so there is always relief.
     const c = this.camera.position;

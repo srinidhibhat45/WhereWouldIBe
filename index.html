@@ -6,6 +6,17 @@
 <title>Where Would I Be…?</title>
 <meta name="description" content="Fast-forward the Earth. Watch the continents drift and find out where your patch of ground ends up in a thousand — or a hundred million — years." />
 <meta name="theme-color" content="#05050c" />
+<meta name="color-scheme" content="dark" />
+<link rel="canonical" href="https://wherewouldibe.srinidhibhat.com/" />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://wherewouldibe.srinidhibhat.com/" />
+<meta property="og:title" content="Where Would I Be…?" />
+<meta property="og:description" content="Fast-forward the Earth. Pick a place and watch the ground under it drift — a thousand years, or a hundred million." />
+<meta property="og:image" content="https://wherewouldibe.srinidhibhat.com/og.jpg" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Where Would I Be…?" />
+<meta name="twitter:description" content="Fast-forward the Earth. Pick a place and watch the ground under it drift." />
+<meta name="twitter:image" content="https://wherewouldibe.srinidhibhat.com/og.jpg" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%23123a63'/%3E%3Cpath d='M5 13h9l3 5 8-2' stroke='%23e6d8ae' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%233ddbff' stroke-width='2'/%3E%3C/svg%3E" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -14,16 +25,24 @@
 </head>
 <body class="stage-pick mode-drift">
 
-<canvas id="globe"></canvas>
+<a class="skip" href="#start">Skip to the controls</a>
+
+<!--
+  The globe is operable from the keyboard: arrows turn it, +/- zoom, Enter
+  drops a pin. Everything it shows is also written out in the answer bar and
+  the details sheet, so nothing here is the only route to a fact.
+-->
+<canvas id="globe" tabindex="0" role="application"
+        aria-label="Globe. Arrow keys turn it, plus and minus zoom, Enter drops a pin at the centre."></canvas>
 <div id="labels" aria-hidden="true"></div>
 
 <!-- ───────────────────────────── loading ───────────────────────────── -->
-<div id="boot">
+<div id="boot" aria-label="Loading">
   <div class="boot-inner">
     <div class="boot-globe"><span></span><span></span><span></span></div>
-    <h1 class="boot-title">Where&nbsp;Would&nbsp;I&nbsp;Be<em>…?</em></h1>
-    <p class="boot-status" id="bootStatus">Winding the clock…</p>
-    <div class="boot-bar"><i id="bootBar"></i></div>
+    <p class="boot-title">Where&nbsp;Would&nbsp;I&nbsp;Be<em>…?</em></p>
+    <p class="boot-status" id="bootStatus" role="status">Winding the clock…</p>
+    <div class="boot-bar" role="progressbar" aria-label="Loading"><i id="bootBar"></i></div>
   </div>
 </div>
 
@@ -46,11 +65,13 @@
   </button>
 
   <div class="top-actions">
-    <button id="detailBtn" class="icon-btn" title="What’s on the globe" aria-label="What’s on the globe">
-      <svg viewBox="0 0 24 24"><path d="M12 3 3 8l9 5 9-5-9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5"/></svg>
+    <button id="detailBtn" class="icon-btn" title="What’s on the globe"
+            aria-label="What’s on the globe" aria-haspopup="true"
+            aria-expanded="false" aria-controls="detailMenu">
+      <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M12 3 3 8l9 5 9-5-9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5"/></svg>
     </button>
     <button id="aboutBtn" class="icon-btn" title="About" aria-label="About">
-      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+      <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
     </button>
   </div>
 </header>
@@ -60,7 +81,7 @@
   the boundaries on brings their key with them, so there is never a moment
   where the globe is drawing something the screen has not explained.
 -->
-<div id="legend" class="legend" hidden>
+<div id="legend" class="legend" role="group" aria-label="Key to the boundary colours" hidden>
   <ul class="legend-list">
     <li><i style="--c:var(--rift)"></i>Pulling apart</li>
     <li><i style="--c:var(--crush)"></i>Crashing together</li>
@@ -70,7 +91,7 @@
 </div>
 
 <!-- ══════════════════ the dock, state 1: pick a place ═══════════════ -->
-<section id="start" class="dock start">
+<section id="start" class="dock start" aria-labelledby="startTitle">
   <h2 class="start-title" id="startTitle">Where would&nbsp;I&nbsp;be<em>…?</em></h2>
   <p class="start-lede" id="startLede">
     The ground under your feet is moving — about as fast as your fingernails grow.
@@ -78,12 +99,12 @@
   </p>
 
   <button class="big-btn" data-act="geolocate" id="geoBtn">
-    <svg viewBox="0 0 24 24"><path d="M12 21s7-6.4 7-11a7 7 0 1 0-14 0c0 4.6 7 11 7 11Z"/><circle cx="12" cy="10" r="2.6"/></svg>
+    <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M12 21s7-6.4 7-11a7 7 0 1 0-14 0c0 4.6 7 11 7 11Z"/><circle cx="12" cy="10" r="2.6"/></svg>
     <span>Use my location<small>stays on your device — nothing is sent anywhere</small></span>
   </button>
 
   <div class="search">
-    <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>
+    <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>
     <input id="searchInput" type="search" autocomplete="off" spellcheck="false"
            placeholder="…or search a city or town" aria-label="Search for a place" />
   </div>
@@ -93,15 +114,18 @@
 </section>
 
 <!-- ═════════════ the dock, state 2: the answer and the clock ════════ -->
-<footer id="timebar" class="dock">
-  <div class="answer-bar" id="answerBar">
+<section id="timebar" class="dock" aria-label="The answer and the clock">
+  <!-- role=status so the sentence is announced when it changes, atomic so it
+       is read as one sentence rather than four fragments. main.js silences it
+       while Play is running, which would otherwise be a stream of chatter. -->
+  <div class="answer-bar" id="answerBar" role="status" aria-live="polite" aria-atomic="true">
     <div class="a-head">
-      <span class="a-kicker" id="aKicker" data-live="kicker">Today</span>
+      <span class="a-kicker" data-live="kicker">Today</span>
       <button class="a-more" data-act="details">Details</button>
     </div>
-    <p class="a-line" id="aLine"><span class="cy" data-live="who"></span><span
+    <p class="a-line"><span class="cy" data-live="who"></span><span
       data-live="mid"></span><strong data-live="key"></strong><span data-live="tail"></span></p>
-    <p class="a-meta" id="aMeta" data-live="meta"></p>
+    <p class="a-meta" data-live="meta"></p>
   </div>
 
   <div class="time-row">
@@ -109,16 +133,16 @@
            aria-label="How far through time" />
     <button id="nowBtn" class="ghost" title="Back to the present day">Today</button>
     <button id="playBtn" class="play" aria-label="Play through time">
-      <svg viewBox="0 0 24 24" class="i-play"><path d="M8 5v14l11-7z"/></svg>
-      <svg viewBox="0 0 24 24" class="i-pause" hidden><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
+      <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" class="i-play"><path d="M8 5v14l11-7z"/></svg>
+      <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" class="i-pause" hidden><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
     </button>
   </div>
 
-  <div class="presets" id="presets"></div>
-</footer>
+  <div class="presets" id="presets" role="group" aria-label="Jump to a timescale"></div>
+</section>
 
 <!-- ═══════════ everything else, only when it is asked for ═══════════ -->
-<aside id="sheet" class="sheet" hidden aria-label="Details">
+<aside id="sheet" class="sheet" hidden tabindex="-1" aria-labelledby="sheetTitle">
   <div class="sheet-head">
     <span class="grab" aria-hidden="true"></span>
     <h2 id="sheetTitle">Details</h2>
@@ -129,8 +153,8 @@
 <div id="scrim" class="scrim" hidden data-act="close-sheet"></div>
 
 <!-- ────────────────────────── globe detail menu ────────────────────── -->
-<div id="detailMenu" class="popover" hidden>
-  <h3>Show on the globe</h3>
+<div id="detailMenu" class="popover" role="group" aria-labelledby="detailMenuTitle" hidden>
+  <h3 id="detailMenuTitle">Show on the globe</h3>
   <label class="lead"><input type="checkbox" data-layer="plateEdges"><span>Plate boundaries<small>the coloured lines, with a key</small></span></label>
   <label><input type="checkbox" data-layer="plateColors"><span>Tint each plate</span></label>
   <label><input type="checkbox" data-layer="land" checked><span>Land</span></label>
@@ -142,9 +166,9 @@
 
 <!-- ───────────────────────────── about ─────────────────────────────── -->
 <div id="aboutModal" class="modal" hidden>
-  <div class="modal-card">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="aboutTitle" tabindex="-1">
     <button class="modal-close" aria-label="Close">&times;</button>
-    <h2>Where Would I Be<em>…?</em></h2>
+    <h2 id="aboutTitle">Where Would I Be<em>…?</em></h2>
     <p class="lede">The ground under you is moving. Not metaphorically — about as fast as
        your fingernails grow. Wait long enough and it ends up somewhere else entirely.</p>
 
@@ -179,7 +203,7 @@
   </div>
 </div>
 
-<div id="toast" class="toast" hidden></div>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
 <script type="module" src="js/main.js"></script>
 <noscript>

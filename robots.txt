@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://wherewouldibe.srinidhibhat.com/sitemap.xml

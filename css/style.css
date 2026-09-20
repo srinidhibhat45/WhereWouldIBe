@@ -19,14 +19,19 @@
 
 :root {
   --void:   #05050c;
-  --panel:  rgba(13, 14, 26, 0.86);
+  /* 0.92, not 0.86. The dock floats over the globe, and over bright land the
+     thinner glass dragged small text down to 2.88:1 — below AA. */
+  --panel:  rgba(13, 14, 26, 0.92);
   --raise:  rgba(255, 255, 255, 0.05);
   --line:   rgba(255, 255, 255, 0.10);
   --line-2: rgba(255, 255, 255, 0.06);
 
-  --text:  #EFEDF8;
-  --dim:   #A29FBA;
-  --faint: #6F6C8A;
+  /* Every one of these clears WCAG AA (4.5:1) against the dock at its worst
+     case — 92% glass sitting over the brightest land on the globe. --faint is
+     the tight one at 4.7:1; it is not allowed to get any darker. */
+  --text:  #EFEDF8;   /* 12.5:1 */
+  --dim:   #A29FBA;   /*  6.5:1 */
+  --faint: #8B88A3;   /*  4.7:1 */
 
   --now:   #3DDBFF;   /* today */
   --then:  #FF7D8E;   /* where it ends up */
@@ -73,7 +78,30 @@ html, body {
 
 button, input, select { font: inherit; color: inherit; }
 button { cursor: pointer; border: 0; background: none; }
-:focus-visible { outline: 2px solid var(--now); outline-offset: 2px; border-radius: 6px; }
+/* A ring that survives both the dark chrome and the bright globe: the cyan
+   carries the meaning, the dark halo keeps it visible over pale continents. */
+:focus-visible {
+  outline: 2px solid var(--now);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(5, 5, 12, 0.85);
+  border-radius: 6px;
+}
+#globe:focus-visible { outline-offset: -3px; box-shadow: none; }
+
+.skip {
+  position: fixed;
+  top: 8px; left: 50%;
+  z-index: 200;
+  transform: translate(-50%, -160%);
+  padding: 10px 18px;
+  border-radius: 10px;
+  background: var(--text);
+  color: var(--void);
+  font-weight: 600;
+  text-decoration: none;
+  transition: transform .15s var(--ease);
+}
+.skip:focus { transform: translate(-50%, 0); }
 
 /* The reader asked for calm. Honour a system preference for less of it. */
 @media (prefers-reduced-motion: reduce) {
@@ -196,7 +224,7 @@ body.stage-explore .here-chip { display: flex; }
 .legend-list i { width: 15px; height: 3px; border-radius: 2px; background: var(--c); flex: none; }
 .legend-off {
   margin-left: auto; flex: none;
-  width: 24px; height: 24px;
+  width: 26px; height: 26px;
   display: grid; place-items: center;
   border-radius: 7px;
   font-size: 17px; line-height: 1;
@@ -382,11 +410,13 @@ body.stage-explore #start {
 .a-line strong { font-weight: 700; color: var(--then); }
 
 .a-meta {
+  /* 11.5px: small, but --faint clears AA and the same words are in the sheet
+     at full size. */
   /* Three facts, one line, deliberately quiet: it is there for the glance you
      take after reading the sentence, not instead of it. */
   margin: 5px 0 0;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 11.5px;
   line-height: 1.4;
   color: var(--faint);
   white-space: nowrap;
@@ -403,23 +433,23 @@ body.stage-explore #start {
   flex: 1 1 auto;
   min-width: 0;
   -webkit-appearance: none; appearance: none;
-  height: 22px;
+  height: 26px;
   background: none;
 }
 #timeSlider::-webkit-slider-runnable-track {
-  height: 6px;
+  height: 8px;
   border-radius: 3px;
   background: linear-gradient(90deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.14) 50%, rgba(255, 125, 142, 0.38));
 }
 #timeSlider::-moz-range-track {
-  height: 6px;
+  height: 8px;
   border-radius: 3px;
   background: linear-gradient(90deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.14) 50%, rgba(255, 125, 142, 0.38));
 }
 #timeSlider::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 20px; height: 20px;
-  margin-top: -7px;
+  width: 24px; height: 24px;   /* WCAG 2.5.8 */
+  margin-top: -8px;
   border-radius: 50%;
   background: #fff;
   border: 3px solid var(--then);
@@ -427,7 +457,7 @@ body.stage-explore #start {
   cursor: grab;
 }
 #timeSlider::-moz-range-thumb {
-  width: 20px; height: 20px;
+  width: 24px; height: 24px;   /* WCAG 2.5.8 */
   border-radius: 50%;
   background: #fff;
   border: 3px solid var(--then);
@@ -718,6 +748,7 @@ body.stage-explore #start {
 }
 .pair-row button {
   margin-left: auto; flex: none;
+  min-height: 24px;          /* WCAG 2.5.8 */
   padding: 3px 10px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.07);
@@ -901,14 +932,23 @@ body.stage-explore #start {
   line-height: 1.15;
   white-space: nowrap;
   color: var(--c);
-  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.95), 0 0 3px rgba(0, 0, 0, 0.9);
   pointer-events: none;
   transition: opacity .18s var(--ease);
+}
+/* A shadow is not a contrast guarantee — these sit over whatever the globe
+   happens to be showing, which includes near-white ice. So the text gets an
+   actual backdrop, drawn behind only the words. */
+.glabel > span {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 7px;
+  background: rgba(5, 5, 12, 0.82);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
 }
 .glabel small {
   display: block;
   font-size: 10.5px; font-weight: 500;
-  color: rgba(255, 255, 255, 0.62);
+  color: rgba(255, 255, 255, 0.78);
 }
 .glabel.hide { opacity: 0; }
 .glabel.below { padding: 9px 0 0; }

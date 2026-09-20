@@ -196,7 +196,8 @@ function renderDrift(state, ctx) {
 
 function tile(n, f, withArrow = false) {
   const arrow = withArrow
-    ? `<svg class="arrow" data-live-rot="rot" viewBox="0 0 24 24" style="transform:rotate(${f.rot}deg)">
+    ? `<svg class="arrow" data-live-rot="rot" viewBox="0 0 24 24" aria-hidden="true" focusable="false"
+           style="transform:rotate(${f.rot}deg)">
          <path d="M12 3v18M12 3l6 7M12 3 6 10" fill="none" stroke="currentColor"
                stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg> `
     : '';
