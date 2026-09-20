@@ -23,7 +23,11 @@ export class GlobeControls {
     this.velocity = { lon: 0, lat: 0 };
 
     this.minDist = 1.35;
-    this.maxDist = 7.0;
+    this.fitDist = 4.3;     // distance at which the whole globe fits the free band
+    // Roomy on purpose: a tall narrow phone needs the camera further back than
+    // a laptop does before the whole globe fits, and the fit distance must not
+    // land on the clamp.
+    this.maxDist = 8.6;
     this.autoRotate = false;   // switched on only while the reader is choosing a place
     this.autoRotateSpeed = 1.6;   // degrees per second
     this.idleDelay = 2500;

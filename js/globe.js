@@ -642,11 +642,34 @@ export class Globe {
 
   /* ------------------------------- rendering ------------------------------ */
 
+  /**
+   * Tell the globe how much of the screen the chrome is eating, so it can aim
+   * for the middle of what is *left*. Without this the planet centres itself
+   * behind the dock and you spend the whole time looking at its forehead.
+   */
+  setFrame(top, bottom, right = 0) {
+    this._frameTop = top;
+    this._frameBottom = bottom;
+    this._frameRight = right;
+    this.resize();
+  }
+
   resize() {
     const w = this.canvas.clientWidth || window.innerWidth;
     const h = this.canvas.clientHeight || window.innerHeight;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
+
+    // Shift the rendered frame so the globe's centre lands in the middle of
+    // whatever the chrome has left. Derivation: the free band runs from `top`
+    // to `h - bottom`, so its centre is top + (h - top - bottom)/2, and moving
+    // the centre there from h/2 is an offset of exactly (bottom - top)/2. The
+    // same argument gives the horizontal shift when a side panel is open.
+    const dy = (((this._frameBottom || 0) - (this._frameTop || 0)) / 2) | 0;
+    const dx = ((this._frameRight || 0) / 2) | 0;
+    if (dx || dy) this.camera.setViewOffset(w, h, dx, dy, w, h);
+    else this.camera.clearViewOffset();
+
     this.camera.updateProjectionMatrix();
   }
 

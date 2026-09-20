@@ -3,11 +3,15 @@
  *
  * The app has two stages and never both at once:
  *
- *   pick     one card in the middle-bottom dock: find a place. Nothing else.
- *   explore  the same dock becomes the time dial; the answer appears on the right.
+ *   pick     one card in the bottom dock: find a place. Nothing else.
+ *   explore  the same dock becomes one sentence and the time dial.
  *
- * Time changes patch text in place rather than re-rendering the panel. Dragging
- * the dial should move the globe and the numbers — not the layout.
+ * Nothing ever floats over the middle of the screen, because the middle of the
+ * screen is the globe and the globe is the answer. The sheet is the single
+ * exception and it only exists while somebody is holding it open.
+ *
+ * Time changes patch text in place rather than re-rendering. Dragging the dial
+ * should move the globe and the numbers — not the layout.
  */
 
 import { PlateModel, toVec, toLonLat, distanceKm, R_EARTH_KM } from './tectonics.js';
@@ -17,7 +21,7 @@ import { GlobeControls } from './controls.js';
 import { Markers, COLORS } from './markers.js';
 import { closestApproach, arrivalAt, distanceSeries } from './rendezvous.js';
 import {
-  renderReadout, renderSearchResults, driftFacts, patch, neighbourBody, esc,
+  renderSheet, renderSearchResults, driftFacts, barFacts, patch, neighbourBody, esc,
 } from './ui.js';
 import { formatYearsShort, formatYears, calendarYear, formatDistance } from './format.js';
 
@@ -33,9 +37,10 @@ const sliderToYears = (v) =>
 const yearsToSlider = (y) =>
   Math.sign(y) * (SLIDER_MAX * Math.log((Math.abs(y) / MAX_YEARS) * DEN + 1)) / K;
 
-/* Six stops, evenly spread across the feel of the scale. Eight was a wall. */
+/* Five stops. Eight was a wall; six did not fit a phone without the last one
+   hanging half off the edge, which reads as broken rather than as scrollable. */
 const PRESETS = [
-  ['1 kyr', 1e3], ['100 kyr', 1e5], ['1 Myr', 1e6],
+  ['1 kyr', 1e3], ['1 Myr', 1e6],
   ['10 Myr', 1e7], ['50 Myr', 5e7], ['250 Myr', 2.5e8],
 ];
 
@@ -128,7 +133,8 @@ async function boot() {
 
     fillSources(plates.source);
     buildTimeUI();
-    bindEvents();
+    bindEvents();          // measures the dock, which gives us controls.fitDist
+    controls.dist = controls.target.dist = controls.fitDist;
     restoreFromHash();
     renderAll();
     mark('ui');
@@ -173,14 +179,27 @@ const nextFrame = () => new Promise((resolve) => {
 });
 
 /**
- * Six line styles at once is not a map, it is a migraine. Start with land,
- * coasts and the plate edges — the only lines this app is actually about —
- * and leave the rest in the Detail menu for anyone who wants them.
+ * Six line styles at once is not a map, it is a migraine — and nobody opened
+ * this to be taught plate tectonics, they opened it to find out where their
+ * ground goes. So the globe starts as sea, land and coastlines, and nothing
+ * else. The boundaries are the most interesting thing you can add, so they get
+ * the top slot in the Detail menu; switching them on brings their key with
+ * them, which is the only honest way to put a coloured line on a screen.
  */
 function applyQuietDefaults() {
   globe.setLayerVisible('graticule', false);
   globe.setLayerVisible('borders', false);
+  globe.setLayerVisible('plateColors', false);
   setOrbitVisible(false);
+  setEdgesVisible(false);
+}
+
+/** The lines and their key are one feature, so they switch as one. */
+function setEdgesVisible(on) {
+  globe.setLayerVisible('plateEdges', on);
+  $('legend').hidden = !on;
+  const box = $('detailMenu').querySelector('[data-layer="plateEdges"]');
+  if (box) box.checked = on;
 }
 
 function fillSources(src) {
@@ -226,7 +245,7 @@ function setAnchor(which, anchor, { fly = true } = {}) {
   if (anchor && fly) {
     const pair = state.mode === 'compare' && state.origin && state.destination
       ? frameBoth(state.origin, state.destination) : null;
-    controls.flyTo(pair || { lon: anchor.lon, lat: anchor.lat, dist: Math.min(controls.target.dist, 3.4) }, 1200);
+    controls.flyTo(pair || { lon: anchor.lon, lat: anchor.lat, dist: controls.fitDist || 4.3 }, 1200);
   }
 
   state.query = '';
@@ -245,7 +264,10 @@ function setAnchor(which, anchor, { fly = true } = {}) {
 function frameBoth(a, b) {
   const mid = toLonLat({ x: (a.vec.x + b.vec.x) / 2, y: (a.vec.y + b.vec.y) / 2, z: (a.vec.z + b.vec.z) / 2 });
   const sepDeg = (distanceKm(a.vec, b.vec) / R_EARTH_KM) * (180 / Math.PI);
-  return { lon: mid[0], lat: mid[1], dist: Math.min(6, 2.4 + (sepDeg / 180) * 3.8) };
+  // Two places on opposite sides of the Earth need more room than two in the
+  // same county, but never less than the distance that fits the globe at all.
+  const fit = controls.fitDist || 4.3;
+  return { lon: mid[0], lat: mid[1], dist: Math.min(controls.maxDist - 0.2, fit * (0.86 + (sepDeg / 180) * 0.5)) };
 }
 
 /* ------------------------------ computation ------------------------------ */
@@ -274,15 +296,52 @@ function recompute() {
  * answer sheet both stack above it on a phone. Measure rather than guess — and
  * re-measure on a stage change, since the two docks are different heights.
  */
+let lastDockH = -1, lastSide = -1;
 function syncDockHeight() {
   const dock = state.stage === 'pick' ? $('start') : $('timebar');
-  document.documentElement.style.setProperty('--dock-h', `${Math.ceil(dock.offsetHeight)}px`);
+  const h = Math.ceil(dock.offsetHeight) + 12;
+  const sideNow = $('sheet').hidden ? 0 : Math.max(0, window.innerWidth - $('sheet').getBoundingClientRect().left);
+  if (h === lastDockH && sideNow === lastSide) return;
+  lastDockH = h; lastSide = sideNow;
+  document.documentElement.style.setProperty('--dock-h', `${h}px`);
+  // And tell the globe, so the planet centres itself in the gap that is left
+  // rather than behind the dock. This is the difference between looking at the
+  // Earth and looking at the top third of the Earth.
+  if (globe) {
+    // A sheet docked to the side is chrome too, so the globe steps out of its
+    // way rather than hiding a limb behind it.
+    globe.setFrame($('topbar').offsetHeight, h, sideNow);
+    controls.fitDist = fitDistance(h, sideNow);
+  }
 }
+
+/**
+ * How far back the camera has to sit for the whole planet to fit in the gap
+ * between the top bar and the dock.
+ *
+ * A sphere of radius 1 seen from `dist` through a vertical field of view `fov`
+ * covers `2h / (2·dist·tan(fov/2))` pixels of a canvas `h` pixels tall — note
+ * that aspect ratio cancels, so the same number governs width. Invert it for
+ * the distance that makes the globe exactly `want` pixels across.
+ *
+ * `want` is the smaller of the free band and the canvas width, less a hair so
+ * the globe sits inside the screen instead of bleeding off the sides.
+ */
+function fitDistance(dockH, side = 0) {
+  const w = window.innerWidth, h = window.innerHeight;
+  const band = Math.max(160, h - $('topbar').offsetHeight - dockH);
+  const want = Math.min(band, Math.max(240, w - side)) * 0.97;
+  const tan = Math.tan((globe.camera.fov * Math.PI / 180) / 2);
+  return clamp(h / (want * tan), controls.minDist + 0.4, controls.maxDist - 0.2);
+}
+
+const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 
 function setStage(stage) {
   state.stage = stage;
   document.body.classList.toggle('stage-pick', stage === 'pick');
   document.body.classList.toggle('stage-explore', stage === 'explore');
+  lastDockH = -1;                 // the other dock is a different height
   syncDockHeight();
   // The globe turns gently while you are choosing, and holds still while you read.
   controls.autoRotate = stage === 'pick' && !state.origin;
@@ -299,7 +358,7 @@ function setStage(stage) {
 function renderAll() {
   renderStart();
   renderChip();
-  renderPanel();
+  renderSheetBody();
   setYears(state.years);
 }
 
@@ -350,7 +409,7 @@ function renderChip() {
  * lands here.
  */
 let panelSignature = '';
-function renderPanel({ force = false } = {}) {
+function renderSheetBody({ force = false } = {}) {
   const sig = [
     state.mode, state.origin?.lon, state.origin?.lat,
     state.destination?.lon, state.destination?.lat,
@@ -359,10 +418,24 @@ function renderPanel({ force = false } = {}) {
   if (!force && sig === panelSignature) return;
   panelSignature = sig;
 
-  const body = $('readoutBody');
-  body.innerHTML = renderReadout(state, { placeIndex, model });
+  const body = $('sheetBody');
+  body.innerHTML = renderSheet(state, { placeIndex, model });
   for (const d of body.querySelectorAll('.fold')) d.open = openFolds.has(d.dataset.fold);
+  $('sheetTitle').textContent = !state.origin ? 'Details'
+    : state.mode === 'compare' ? 'Two places' : state.origin.name;
   lastFacts = null;
+  renderBar();
+}
+
+/**
+ * The dock's sentence — the one piece of text that changes on every frame of
+ * Play. Its markup is written once, in index.html, and never again; each step
+ * only writes the four slots, so a scrub causes no DOM churn and no reflow.
+ */
+function renderBar() {
+  if (!state.origin) return;
+  patch($('answerBar'), barFacts(state));
+  syncDockHeight();   // cheap, and a no-op unless the sentence really did resize
 }
 
 let lastFacts = null;
@@ -371,7 +444,8 @@ function patchPanel() {
   const f = driftFacts(state);
   if (lastFacts && f.headline === lastFacts.headline && f.v1 === lastFacts.v1) return;
   lastFacts = f;
-  patch($('readoutBody'), f);
+  patch($('answerBar'), f);
+  if (!$('sheet').hidden) patch($('sheetBody'), f);
 }
 
 /** Folds hold time-dependent lists; refresh them once the dial settles. */
@@ -380,7 +454,8 @@ function refreshFoldsSoon() {
   clearTimeout(foldTimer);
   foldTimer = setTimeout(() => {
     if (state.mode !== 'drift' || !state.origin) return;
-    const fold = $('readoutBody').querySelector('[data-fold="nbrs"]');
+    if ($('sheet').hidden) return;
+    const fold = $('sheetBody').querySelector('[data-fold="nbrs"]');
     if (fold && fold.open) {
       fold.querySelector('.fold-body').innerHTML = neighbourBody(state, { placeIndex, model });
     }
@@ -392,15 +467,6 @@ function setYears(y, { fromSlider = false } = {}) {
   state.years = y;
   globe.setTime(y);
   markers.update(y);
-
-  const bar = $('timebar');
-  bar.classList.toggle('is-past', y < 0);
-  bar.classList.toggle('is-now', y === 0);
-  $('timeValue').textContent = y === 0 ? 'today' : formatYearsShort(y);
-  const cal = y === 0 ? '' : calendarYear(y);
-  $('timeDirection').textContent = y === 0
-    ? 'drag the dial to travel in time'
-    : `${y > 0 ? 'from now' : 'ago'}${cal ? ' · ' + cal : ''}`;
 
   $('nowBtn').hidden = y === 0;
   if (!fromSlider) $('timeSlider').value = String(Math.round(yearsToSlider(y)));
@@ -416,26 +482,30 @@ function setYears(y, { fromSlider = false } = {}) {
     markers.clearNeighbours();
   }
 
-  if (crossed) renderPanel();
+  if (crossed) renderSheetBody();
+  renderBar();
   patchPanel();
   refreshFoldsSoon();
 }
 
 /* ------------------------------- labels ---------------------------------- */
 
+/*
+ * Two words, total. The chip at the top already says *where*, so the globe only
+ * has to say *when* — one end is today, the other is the year you dialled in.
+ * Anything more and the two labels sit on top of each other at short
+ * timescales, which is how you end up with a coordinate pair written across
+ * somebody's home town.
+ *
+ * `below` hangs a label under its pin instead of over it, so the pair separate
+ * even when the pins themselves are a few pixels apart.
+ */
 const LABEL_STYLE = {
-  origin: { color: COLORS.origin, text: () => state.origin?.name || '', sub: () => 'today' },
-  future: { color: COLORS.future, text: () => formatYearsShort(state.years), sub: () => futureCoordText() },
-  destination: { color: COLORS.destination, text: () => state.destination?.name || '', sub: () => '' },
+  origin: { color: COLORS.origin, below: true, text: () => 'today', sub: () => '' },
+  future: { color: COLORS.future, text: () => formatYearsShort(state.years), sub: () => '' },
+  destination: { color: COLORS.destination, below: true, text: () => shortName(state.destination?.name || ''), sub: () => '' },
   pole: { color: COLORS.pole, text: () => 'the spindle', sub: () => state.origin ? `${state.origin.plate.name} plate` : '' },
 };
-
-function futureCoordText() {
-  if (!state.origin) return '';
-  const p = state.origin.plate.positionAt(state.origin.vec, state.years);
-  const [lon, lat] = toLonLat(p);
-  return `${lat.toFixed(2)}°, ${lon.toFixed(2)}°`;
-}
 
 function updateLabels() {
   const anchors = markers.anchors();
@@ -453,7 +523,8 @@ function updateLabels() {
     const style = LABEL_STYLE[a.id];
     const p = globe.project(a.vec, a.radius);
     el.style.setProperty('--c', style.color);
-    el.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) translate(-50%, -100%)`;
+    el.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) translate(-50%, ${style.below ? '0' : '-100%'})`;
+    el.classList.toggle('below', !!style.below);
     el.classList.toggle('hide', !p.visible);
     const sub = style.sub();
     const html = `${esc(style.text())}${sub ? `<small>${esc(sub)}</small>` : ''}`;
@@ -499,6 +570,7 @@ function bindEvents() {
       if (first) first.click();
     }
     if (e.key === 'Escape') {
+      if (!$('sheet').hidden) return closeSheet();
       closeModal();
       $('detailMenu').hidden = true;
       if (state.stage === 'pick' && state.origin) setStageAndRender('explore');
@@ -509,7 +581,7 @@ function bindEvents() {
   });
 
   // Remember which folds the reader opened, so a rebuild does not close them.
-  $('readoutBody').addEventListener('toggle', (e) => {
+  $('sheetBody').addEventListener('toggle', (e) => {
     const d = e.target.closest('.fold');
     if (!d) return;
     if (d.open) { openFolds.add(d.dataset.fold); refreshFoldsSoon(); }
@@ -540,26 +612,14 @@ function bindEvents() {
   $('detailMenu').addEventListener('change', (e) => {
     const layer = e.target.dataset.layer;
     if (layer === 'orbit') { state.showOrbit = e.target.checked; setOrbitVisible(e.target.checked); }
+    else if (layer === 'plateEdges') setEdgesVisible(e.target.checked);
     else globe.setLayerVisible(layer, e.target.checked);
-  });
-
-  $('legendToggle').addEventListener('click', () => {
-    const l = $('legend');
-    const collapsed = l.classList.toggle('collapsed');
-    $('legendToggle').setAttribute('aria-expanded', String(!collapsed));
   });
 
   $('aboutBtn').addEventListener('click', () => { $('aboutModal').hidden = false; });
   $('aboutModal').addEventListener('click', (e) => {
     if (e.target.id === 'aboutModal' || e.target.classList.contains('modal-close')) closeModal();
   });
-
-  $('sheetToggle').addEventListener('click', () => {
-    $('readout').classList.toggle('hidden-sheet');
-  });
-  const mq = window.matchMedia('(max-width: 900px)');
-  const applyMQ = () => { $('sheetToggle').hidden = !mq.matches; };
-  mq.addEventListener('change', applyMQ); applyMQ();
 
   if (window.ResizeObserver) {
     const ro = new ResizeObserver(syncDockHeight);
@@ -572,6 +632,22 @@ function bindEvents() {
 }
 
 const closeModal = () => { $('aboutModal').hidden = true; };
+
+/* The sheet is the only thing allowed to cover the globe, and only for as long
+   as the reader is deliberately holding it open. */
+function openSheet() {
+  renderSheetBody({ force: true });
+  $('sheet').hidden = false;
+  $('scrim').hidden = false;
+  syncDockHeight();
+  refreshFoldsSoon();
+}
+function closeSheet() {
+  if ($('sheet').hidden) return;
+  $('sheet').hidden = true;
+  $('scrim').hidden = true;
+  syncDockHeight();
+}
 
 function setStageAndRender(stage) {
   setStage(stage);
@@ -599,6 +675,9 @@ function onDelegatedClick(e) {
   }
 
   switch (btn.dataset.act) {
+    case 'details': return openSheet();
+    case 'close-sheet': return closeSheet();
+    case 'hide-edges': return setEdgesVisible(false);
     case 'geolocate': return geolocate();
     case 'surprise': return surprise();
     case 'repick':
@@ -607,6 +686,7 @@ function onDelegatedClick(e) {
     case 'keep':
       return setStageAndRender('explore');
     case 'compare':
+      closeSheet();
       state.mode = 'compare';
       state.pickTarget = 'dest';
       document.body.classList.replace('mode-drift', 'mode-compare');

@@ -9,7 +9,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%23123a63'/%3E%3Cpath d='M5 13h9l3 5 8-2' stroke='%23e6d8ae' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%233ddbff' stroke-width='2'/%3E%3C/svg%3E" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="css/style.css" />
 </head>
 <body class="stage-pick mode-drift">
@@ -38,12 +38,12 @@
     <h1>Where Would I Be<em>…?</em></h1>
   </div>
 
-  <!-- Shown only once something is pinned: what we are talking about. -->
-  <div id="hereChip" class="here-chip" hidden>
+  <!-- Replaces the brand once a place is pinned: what we are talking about. -->
+  <button id="hereChip" class="here-chip" data-act="repick" hidden>
     <span class="here-dot"></span>
     <span class="here-name" id="hereName"></span>
-    <button data-act="repick" class="here-change">change</button>
-  </div>
+    <span class="here-change">change</span>
+  </button>
 
   <div class="top-actions">
     <button id="detailBtn" class="icon-btn" title="What’s on the globe" aria-label="What’s on the globe">
@@ -55,8 +55,22 @@
   </div>
 </header>
 
-<!-- ─────────────────────── step one: pick a place ──────────────────── -->
-<section id="start" class="start">
+<!--
+  The key to the coloured lines. It only exists while the lines do — switching
+  the boundaries on brings their key with them, so there is never a moment
+  where the globe is drawing something the screen has not explained.
+-->
+<div id="legend" class="legend" hidden>
+  <ul class="legend-list">
+    <li><i style="--c:var(--rift)"></i>Pulling apart</li>
+    <li><i style="--c:var(--crush)"></i>Crashing together</li>
+    <li><i style="--c:var(--slide)"></i>Sliding past</li>
+  </ul>
+  <button class="legend-off" data-act="hide-edges" aria-label="Hide the plate boundaries">&times;</button>
+</div>
+
+<!-- ══════════════════ the dock, state 1: pick a place ═══════════════ -->
+<section id="start" class="dock start">
   <h2 class="start-title" id="startTitle">Where would&nbsp;I&nbsp;be<em>…?</em></h2>
   <p class="start-lede" id="startLede">
     The ground under your feet is moving — about as fast as your fingernails grow.
@@ -68,82 +82,61 @@
     <span>Use my location<small>stays on your device — nothing is sent anywhere</small></span>
   </button>
 
-  <div class="or">or</div>
-
   <div class="search">
     <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>
     <input id="searchInput" type="search" autocomplete="off" spellcheck="false"
-           placeholder="Search a city or town…" aria-label="Search for a place" />
+           placeholder="…or search a city or town" aria-label="Search for a place" />
   </div>
   <div class="results" id="searchResults"></div>
 
-  <div class="start-foot">
-    <button class="mini-btn" data-act="surprise">🎲 Surprise me</button>
-    <span class="tip">…or just tap the globe anywhere</span>
-  </div>
+  <div class="start-foot"></div>
 </section>
 
-<!-- ──────────────────────── what the lines mean ────────────────────── -->
-<div id="legend" class="legend">
-  <button class="legend-h" id="legendToggle" aria-expanded="true">
-    <span>What the coloured lines mean</span>
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
-  </button>
-  <ul class="legend-list">
-    <li><i style="--c:var(--rift)"></i><b>Pulling apart</b><span>new ground is made here</span></li>
-    <li><i style="--c:var(--crush)"></i><b>Crashing together</b><span>mountains, trenches, quakes</span></li>
-    <li><i style="--c:var(--slide)"></i><b>Sliding past</b><span>grinding sideways</span></li>
-  </ul>
-</div>
-
-<!-- ───────────────────────── step two: the answer ──────────────────── -->
-<aside id="readout" class="panel" aria-live="polite">
-  <div id="readoutBody"></div>
-</aside>
-
-<button id="sheetToggle" class="sheet-toggle" hidden aria-label="Show or hide the details">
-  <span></span>
-</button>
-
-<!-- ─────────────────────────── the time dial ───────────────────────── -->
-<footer id="timebar">
-  <div class="time-head">
-    <div class="time-now">
-      <strong class="time-value" id="timeValue">today</strong>
-      <span class="time-label" id="timeDirection">drag to travel in time</span>
+<!-- ═════════════ the dock, state 2: the answer and the clock ════════ -->
+<footer id="timebar" class="dock">
+  <div class="answer-bar" id="answerBar">
+    <div class="a-head">
+      <span class="a-kicker" id="aKicker" data-live="kicker">Today</span>
+      <button class="a-more" data-act="details">Details</button>
     </div>
-    <div class="time-controls">
-      <button id="nowBtn" class="ghost" title="Back to the present day">Today</button>
-      <button id="playBtn" class="play" aria-label="Play through time">
-        <svg viewBox="0 0 24 24" class="i-play"><path d="M8 5v14l11-7z"/></svg>
-        <svg viewBox="0 0 24 24" class="i-pause" hidden><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
-        <span>Play</span>
-      </button>
-    </div>
+    <p class="a-line" id="aLine"><span class="cy" data-live="who"></span><span
+      data-live="mid"></span><strong data-live="key"></strong><span data-live="tail"></span></p>
   </div>
 
-  <div class="time-track">
-    <span class="track-end left">← past</span>
-    <span class="track-end right">future →</span>
+  <div class="time-row">
     <input id="timeSlider" type="range" min="-2000" max="2000" step="1" value="0"
            aria-label="How far through time" />
-    <div class="track-centre" aria-hidden="true"></div>
+    <button id="nowBtn" class="ghost" title="Back to the present day">Today</button>
+    <button id="playBtn" class="play" aria-label="Play through time">
+      <svg viewBox="0 0 24 24" class="i-play"><path d="M8 5v14l11-7z"/></svg>
+      <svg viewBox="0 0 24 24" class="i-pause" hidden><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
+    </button>
   </div>
 
   <div class="presets" id="presets"></div>
 </footer>
 
+<!-- ═══════════ everything else, only when it is asked for ═══════════ -->
+<aside id="sheet" class="sheet" hidden aria-label="Details">
+  <div class="sheet-head">
+    <span class="grab" aria-hidden="true"></span>
+    <h2 id="sheetTitle">Details</h2>
+    <button class="sheet-close" data-act="close-sheet" aria-label="Close">&times;</button>
+  </div>
+  <div class="sheet-body" id="sheetBody"></div>
+</aside>
+<div id="scrim" class="scrim" hidden data-act="close-sheet"></div>
+
 <!-- ────────────────────────── globe detail menu ────────────────────── -->
 <div id="detailMenu" class="popover" hidden>
   <h3>Show on the globe</h3>
-  <label><input type="checkbox" data-layer="plateColors" checked><span>Tint each plate</span></label>
-  <label><input type="checkbox" data-layer="plateEdges" checked><span>Plate edges</span></label>
+  <label class="lead"><input type="checkbox" data-layer="plateEdges"><span>Plate boundaries<small>the coloured lines, with a key</small></span></label>
+  <label><input type="checkbox" data-layer="plateColors"><span>Tint each plate</span></label>
   <label><input type="checkbox" data-layer="land" checked><span>Land</span></label>
   <label><input type="checkbox" data-layer="borders"><span>Country borders</span></label>
   <label><input type="checkbox" data-layer="graticule"><span>Lat / long grid</span></label>
   <label><input type="checkbox" data-layer="orbit"><span>The circle your plate turns on</span></label>
-  <p class="popover-note">Everything here is off-by-default detail. The globe reads more
-    clearly without it.</p>
+  <p class="popover-note">All off by default. The globe reads more clearly without them.</p>
 </div>
 
 <!-- ───────────────────────────── about ─────────────────────────────── -->

@@ -12,22 +12,36 @@ neighbours.
 
 1. **Pick a place** — your location, a search, or a tap on the globe. That is
    the only thing on screen at this point.
-2. **Run the clock** — the picker becomes a time dial. The answer appears as a
-   sentence first: where the ground ends up, how far it travelled, which way,
-   and what the climate does. Numbers sit under it; everything else is folded
-   away until you ask for it.
+2. **Run the clock** — the picker becomes a time dial in the same place. The
+   answer is one sentence: where the ground ends up, how far it went and which
+   way. Every number behind that sentence is in a sheet that stays shut until
+   you open it.
 3. **Compare, if you like** — pick a second place and the app solves for when
    the two patches of ground come closest, how close that is, and whether they
    ever really meet at all.
 
-Dragging the dial moves the globe and the numbers. It does not move the
-layout — the panel patches its text in place rather than re-rendering, so
-nothing you are reading jumps.
+### The layout rule
 
-The globe starts quiet: land, coastlines and plate edges, with the edges
-coloured by what they are actually doing and a key on screen saying so.
-The lat/long grid, country borders and Euler orbit are all off by default and
-live behind the layers button.
+There is a top bar, there is the globe, and there is one dock at the bottom.
+Nothing floats over the middle of the screen, because the middle of the screen
+is where a cyan pin, a track and a coral pin are busy answering the question —
+a panel laid over that defeats the entire app. The details sheet is the single
+exception, and it only exists while you are deliberately holding it open.
+
+The globe even knows how much room the chrome is taking: `Globe.setFrame()`
+offsets the camera's projection so the planet centres itself in the gap that is
+left, rather than hiding its lower third behind the dock.
+
+Dragging the dial moves the globe and the numbers, and nothing else. The dock
+is a fixed height for its entire life and the sentence patches its own text
+nodes, so a 200-step scrub produces **zero** DOM insertions and not one pixel
+of layout change.
+
+The globe starts quiet: sea, land and coastlines. That is all. Plate
+boundaries, plate tints, the lat/long grid, country borders and the Euler orbit
+are all off by default behind the layers button — and switching the boundaries
+on brings their key on screen with them, since a coloured line nobody can read
+is just noise.
 
 Everything runs in the browser. There is no server, no analytics, and if you
 share your location it never leaves your device.

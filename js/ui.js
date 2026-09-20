@@ -1,14 +1,16 @@
 /**
- * ui.js — the answer panel.
+ * ui.js — the words.
  *
- * Two rules here, both learned the hard way:
+ * Three rules, all learned the hard way:
  *
- *   1. Say the answer in a sentence before showing a single number. Everything
- *      past the first screenful lives inside a fold the reader chose to open.
- *   2. Scrubbing time must not rebuild the panel. `facts()` computes one flat
- *      object; the markup renders it with `data-live` keys, and `patch()` walks
- *      those keys and writes text. Nothing reflows, nothing flickers, and the
- *      thing you were reading stays where it was.
+ *   1. The answer is ONE sentence, and it lives in the dock. Not a panel, not a
+ *      column of tiles — a sentence. The globe is doing the real explaining and
+ *      anything laid over it is in the way.
+ *   2. Every number past that sentence lives in the sheet, which is shut until
+ *      somebody opens it.
+ *   3. Scrubbing time must not rebuild anything. `driftFacts()` computes one
+ *      flat object; markup renders it with `data-live` keys and `patch()` walks
+ *      those keys and writes text. Nothing reflows, nothing flickers.
  */
 
 import {
@@ -41,7 +43,7 @@ const longhand = (c) => LONGHAND[c] || String(c).toLowerCase();
 export function renderSearchResults(places) {
   return places.map((p, i) => `
     <button data-place="${p.index}" ${i === 0 ? 'class="is-active"' : ''}>
-      <span class="r-name">${esc(p.name)}${p.capital === 2 ? ' <span style="color:var(--amber);font-size:10px">★</span>' : ''}</span>
+      <span class="r-name">${esc(p.name)}${p.capital === 2 ? ' <span style="color:var(--other);font-size:10px">★</span>' : ''}</span>
       <span class="r-meta">${esc([p.admin, p.country].filter(Boolean).join(' · '))}${p.population ? ' — ' + formatPopulation(p.population) : ''}</span>
     </button>`).join('');
 }
@@ -65,8 +67,12 @@ export function driftFacts(state) {
   if (years === 0) {
     return {
       kicker: 'Right now',
-      headline: `<span class="cy">${esc(origin.name)}</span> is creeping
-        <strong>${esc(longhand(r.heading))}</strong> at ${esc(formatSpeed(r.speedMmYr))}.`,
+      // The sentence is four slots rather than one string, so the dock can
+      // rewrite its numbers without rewriting its markup. See renderBar().
+      who: origin.name,
+      mid: ' is creeping ',
+      key: longhand(r.heading),
+      tail: ` at ${formatSpeed(r.speedMmYr)}.`,
       lat: latText,
       lon: lonText,
       shift: 'where it sits today',
@@ -87,10 +93,11 @@ export function driftFacts(state) {
 
   return {
     kicker: ago ? `${formatYears(Math.abs(years))} ago` : `In ${formatYears(years)}`,
-    headline: `<span class="cy">${esc(origin.name)}</span>${ago ? ' sat' : ' ends up'}
-      <strong>${esc(formatDistance(r.displacementKm))}</strong> to the
-      ${esc(longhand(went))}${
-        climateChanged ? `, ${ago ? 'back then in' : 'in'} ${esc(band.zone)}` : ''}.`,
+    who: origin.name,
+    mid: ago ? ' sat ' : ' ends up ',
+    key: formatDistance(r.displacementKm),
+    tail: ` to the ${longhand(went)}${
+      climateChanged ? `, ${ago ? 'back then in' : 'in'} ${band.zone}` : ''}.`,
     lat: latText,
     lon: lonText,
     shift: `${signed(latShift, 1)}° of latitude`,
@@ -105,9 +112,36 @@ export function driftFacts(state) {
   };
 }
 
-/* ============================== the answer ============================== */
+/* =========================== the one-line answer ========================= */
 
-export function renderReadout(state, ctx) {
+/**
+ * What the dock says. Both modes reduce to the same two strings, because the
+ * dock has room for exactly two strings and no more.
+ */
+const EMPTY = { kicker: '', who: '', mid: '', key: '', tail: '' };
+
+export function barFacts(state) {
+  if (!state.origin) return EMPTY;
+  if (state.mode !== 'compare') return driftFacts(state);
+
+  const { origin, destination } = state;
+  if (!destination) {
+    return { ...EMPTY,
+      kicker: 'Two places',
+      who: origin.name,
+      tail: ' needs a partner. Pick a second place and we’ll work out when'
+          + ' the two of them come closest.',
+    };
+  }
+  const res = state.rendezvous;
+  if (!res) return { ...EMPTY, kicker: 'Working…' };
+  const v = verdict(res);
+  return { ...EMPTY, kicker: v.headline, tail: v.detail };
+}
+
+/* ============================== the sheet =============================== */
+
+export function renderSheet(state, ctx) {
   if (!state.origin) return '';
   return state.mode === 'compare' ? renderCompare(state, ctx) : renderDrift(state, ctx);
 }
@@ -115,29 +149,22 @@ export function renderReadout(state, ctx) {
 function renderDrift(state, ctx) {
   const f = driftFacts(state);
   return `
-  <div class="answer">
-    <div class="answer-kicker" data-live="kicker">${esc(f.kicker)}</div>
-    <p class="answer-line" data-live-html="headline">${f.headline}</p>
-
-    <div class="coords">
-      <b data-live="lat">${esc(f.lat)}</b>
-      <b data-live="lon">${esc(f.lon)}</b>
-      <small data-live="shift">${esc(f.shift)}</small>
-    </div>
-
-    <div class="tiles">
-      ${tile('1', f)}
-      ${tile('2', f, true)}
-      ${tile('3', f)}
-    </div>
-
-    <p class="note" data-live="foot" style="margin-top:11px">${esc(f.foot)}</p>
-
-    <button class="next-step" data-act="compare">
-      <span>Compare with another place<small>when do two patches of ground meet?</small></span>
-      <span aria-hidden="true">→</span>
-    </button>
+  <div class="coords">
+    <b data-live="lat">${esc(f.lat)}</b>
+    <b data-live="lon">${esc(f.lon)}</b>
+    <small data-live="shift">${esc(f.shift)}</small>
   </div>
+
+  <div class="tiles">
+    ${tile('1', f)}
+    ${tile('2', f, true)}
+    ${tile('3', f)}
+  </div>
+
+  <button class="next-step" data-act="compare">
+    <span>Compare with another place<small>when do two patches of ground meet?</small></span>
+    <span aria-hidden="true">→</span>
+  </button>
 
   ${foldPlate(state)}
   ${foldNeighbours(state, ctx)}
@@ -166,7 +193,13 @@ export function patch(root, f) {
   if (!root) return false;
   for (const el of root.querySelectorAll('[data-live]')) {
     const v = f[el.dataset.live];
-    if (v !== undefined && el.textContent !== v) el.textContent = v;
+    if (v === undefined || el.textContent === v) continue;
+    // Write *into* the existing text node where there is one. Assigning to
+    // textContent would drop the node and build a new one, which churns the
+    // DOM 60 times a second during Play for no gain.
+    const first = el.firstChild;
+    if (first && first.nodeType === 3 && !first.nextSibling) first.data = v;
+    else el.textContent = v;
   }
   for (const el of root.querySelectorAll('[data-live-html]')) {
     const v = f[el.dataset.liveHtml];
@@ -236,11 +269,11 @@ export function neighbourBody(state, ctx) {
         <span class="nbr-name">${esc(n.place.shortLabel)}</span>
         <span class="nbr-km">${comma(n.km)} km</span>
       </div>
-      <div class="bar" style="--c:${closer ? 'var(--mint)' : 'var(--coral)'}">
+      <div class="bar" style="--c:${closer ? 'var(--near)' : 'var(--then)'}">
         <i style="width:${Math.max(3, (n.km / max) * 100).toFixed(1)}%"></i></div>
       <div class="nbr-was">${closer
-        ? `<span style="color:var(--mint)">${comma(was - n.km)} km closer</span>`
-        : `<span style="color:var(--coral)">${comma(n.km - was)} km further</span>`} than today</div>
+        ? `<span style="color:var(--near)">${comma(was - n.km)} km closer</span>`
+        : `<span style="color:var(--then)">${comma(n.km - was)} km further</span>`} than today</div>
     </div>`;
   }).join('')}</div>`;
 }
@@ -275,33 +308,22 @@ function foldTrust(state) {
     <p class="note" style="margin-top:10px">The model is real — 56 plates measured over the
       last 780,000 years — but running it forward assumes plates never change course, jam or
       break, which is exactly what plates always do.</p>
-    ${far ? `<p class="note" style="margin-top:10px;color:var(--amber)">Past 50 million years
+    ${far ? `<p class="note" style="margin-top:10px;color:var(--other)">Past 50 million years
       this is a very well-informed daydream, not a prediction.</p>` : ''}`);
 }
 
 /* ============================ compare mode ============================== */
 
 function renderCompare(state, ctx) {
-  const { origin, destination } = state;
+  const { destination } = state;
 
-  if (!destination) {
-    return `<div class="answer">
-      <div class="answer-kicker">Two places</div>
-      <p class="answer-line">Pick somewhere else and we’ll work out when the two patches of
-        ground come closest — and whether they ever really meet.</p>
-      ${pairRows(state)}
-    </div>`;
-  }
+  if (!destination) return pairRows(state);
 
   const res = state.rendezvous;
-  if (!res) return `<div class="answer"><div class="answer-kicker">Working…</div></div>`;
-  const v = verdict(res);
+  if (!res) return '<p class="note">Working…</p>';
 
   return `
-  <div class="answer">
-    <div class="answer-kicker">${esc(v.headline)}</div>
-    <p class="answer-line">${esc(v.detail)}</p>
-    ${pairRows(state)}
+  ${pairRows(state)}
 
     ${res.sameplate ? '' : `
     <div class="tiles" style="grid-template-columns:repeat(2,1fr)">
@@ -321,7 +343,6 @@ function renderCompare(state, ctx) {
       <span>Back to one place<small>where does my ground go?</small></span>
       <span aria-hidden="true">←</span>
     </button>
-  </div>
 
   ${res.sameplate ? '' : fold('chart', 'How far apart, over time', chartBody(state), true)}
   ${res.sameplate ? '' : fold('arrival', 'The literal question', arrivalBody(state))}
@@ -335,8 +356,8 @@ function pairRows(state) {
     <button data-act="pick-${id}">${anchor ? 'change' : 'pick'}</button>
   </div>`;
   return `<div class="pair">
-    ${row(state.origin, 'var(--cyan)', 'origin', 'Pick a first place')}
-    ${row(state.destination, 'var(--amber)', 'dest', 'Pick a second place')}
+    ${row(state.origin, 'var(--now)', 'origin', 'Pick a first place')}
+    ${row(state.destination, 'var(--other)', 'dest', 'Pick a second place')}
   </div>`;
 }
 
