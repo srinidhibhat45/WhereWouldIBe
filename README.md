@@ -8,15 +8,26 @@ the continents crawl — with your patch of crust riding along, carrying its
 coordinates, its climate and eventually a completely different set of
 neighbours.
 
-**Two questions, two modes:**
+**How it goes:**
 
-- **Fast-forward** — *where does my ground go?* Pick a spot, pick a year, and
-  the globe rearranges itself around it. You get the new coordinates, how far
-  the ground travelled and in which direction, which climate band it lands in,
-  and which cities end up next door.
-- **Rendezvous** — *when do two places meet?* Pick two spots. Both are riding
-  their own plates, so the app solves for when they come closest, how close
-  that is, and whether they ever really meet at all.
+1. **Pick a place** — your location, a search, or a tap on the globe. That is
+   the only thing on screen at this point.
+2. **Run the clock** — the picker becomes a time dial. The answer appears as a
+   sentence first: where the ground ends up, how far it travelled, which way,
+   and what the climate does. Numbers sit under it; everything else is folded
+   away until you ask for it.
+3. **Compare, if you like** — pick a second place and the app solves for when
+   the two patches of ground come closest, how close that is, and whether they
+   ever really meet at all.
+
+Dragging the dial moves the globe and the numbers. It does not move the
+layout — the panel patches its text in place rather than re-rendering, so
+nothing you are reading jumps.
+
+The globe starts quiet: land, coastlines and plate edges, with the edges
+coloured by what they are actually doing and a key on screen saying so.
+The lat/long grid, country borders and Euler orbit are all off by default and
+live behind the layers button.
 
 Everything runs in the browser. There is no server, no analytics, and if you
 share your location it never leaves your device.

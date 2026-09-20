@@ -1,10 +1,13 @@
 /**
  * main.js — state, wiring, and the frame loop.
  *
- * Owns the single source of truth (`state`), hands it to the renderers, and
- * keeps the globe, the markers and the panels in step. Heavy recomputation
- * (nearest neighbours, rendezvous solving) is throttled; the globe itself
- * updates every frame because scrubbing time should feel instant.
+ * The app has two stages and never both at once:
+ *
+ *   pick     one card in the middle-bottom dock: find a place. Nothing else.
+ *   explore  the same dock becomes the time dial; the answer appears on the right.
+ *
+ * Time changes patch text in place rather than re-rendering the panel. Dragging
+ * the dial should move the globe and the numbers — not the layout.
  */
 
 import { PlateModel, toVec, toLonLat, distanceKm, R_EARTH_KM } from './tectonics.js';
@@ -13,8 +16,10 @@ import { Globe, THREE } from './globe.js';
 import { GlobeControls } from './controls.js';
 import { Markers, COLORS } from './markers.js';
 import { closestApproach, arrivalAt, distanceSeries } from './rendezvous.js';
-import { renderPicker, renderReadout, renderSearchResults, esc } from './ui.js';
-import { formatYearsShort, formatYears, calendarYear, comma, formatDistance } from './format.js';
+import {
+  renderReadout, renderSearchResults, driftFacts, patch, neighbourBody, esc,
+} from './ui.js';
+import { formatYearsShort, formatYears, calendarYear, formatDistance } from './format.js';
 
 /* ------------------------------ time mapping ----------------------------- */
 
@@ -28,16 +33,17 @@ const sliderToYears = (v) =>
 const yearsToSlider = (y) =>
   Math.sign(y) * (SLIDER_MAX * Math.log((Math.abs(y) / MAX_YEARS) * DEN + 1)) / K;
 
+/* Six stops, evenly spread across the feel of the scale. Eight was a wall. */
 const PRESETS = [
-  ['1 kyr', 1e3], ['10 kyr', 1e4], ['100 kyr', 1e5], ['1 Myr', 1e6],
-  ['10 Myr', 1e7], ['50 Myr', 5e7], ['100 Myr', 1e8], ['250 Myr', 2.5e8],
+  ['1 kyr', 1e3], ['100 kyr', 1e5], ['1 Myr', 1e6],
+  ['10 Myr', 1e7], ['50 Myr', 5e7], ['250 Myr', 2.5e8],
 ];
-const TICKS = [1e4, 1e6, 1e8];
 
 /* --------------------------------- state --------------------------------- */
 
 const state = {
-  mode: 'drift',
+  stage: 'pick',          // 'pick' | 'explore'
+  mode: 'drift',          // 'drift' | 'compare'
   years: 0,
   origin: null,
   destination: null,
@@ -48,12 +54,15 @@ const state = {
   rendezvous: null,
   arrival: null,
   series: null,
-  showOrbit: true,
+  showOrbit: false,
 };
 
 let model, placeIndex, globe, controls, markers;
 const $ = (id) => document.getElementById(id);
 const labelEls = new Map();
+
+/** Which detail folds the reader has opened — kept across re-renders. */
+const openFolds = new Set(['nbrs', 'chart']);
 
 /* --------------------------------- boot ---------------------------------- */
 
@@ -62,7 +71,7 @@ const BOOT_LINES = [
   'Unfolding 52 tectonic plates…',
   'Measuring how fast the ground moves…',
   'Stitching coastlines onto a sphere…',
-  'Looking up 7,800 places…',
+  'Looking up 9,000 places…',
   'Lighting the mantle…',
 ];
 
@@ -103,6 +112,7 @@ async function boot() {
     globe = new Globe($('globe'), model);
     globe.resize();
     controls = new GlobeControls(globe.camera, $('globe'), THREE);
+    controls.autoRotateSpeed = 0.9;      // a slow turn while you decide, and no more
     mark('scene');
 
     tick(76, BOOT_LINES[3]);
@@ -111,6 +121,7 @@ async function boot() {
     mark('buildWorld');
 
     markers = new Markers(globe);
+    applyQuietDefaults();
     mark('markers');
     tick(94);
     await nextFrame();
@@ -119,7 +130,7 @@ async function boot() {
     buildTimeUI();
     bindEvents();
     restoreFromHash();
-    render();
+    renderAll();
     mark('ui');
     startLoop();
 
@@ -133,7 +144,7 @@ async function boot() {
     console.error(err);
     status.innerHTML = 'Could not start.';
     const hint = location.protocol === 'file:'
-      ? 'This app loads its data with fetch(), which browsers block on <code>file://</code>. Run a local server — <code>python3 -m http.server</code> — and open the localhost address.'
+      ? 'This app loads its data with fetch(), which browsers block on <code>file://</code>. Run a local server — <code>node tools/serve.mjs</code> — and open the localhost address.'
       : esc(err.message || String(err));
     status.insertAdjacentHTML('afterend', `<p class="boot-error">${hint}</p>`);
   }
@@ -146,6 +157,7 @@ async function fetchJSON(url, after) {
   if (after) after();
   return j;
 }
+
 /**
  * Yield so the loading screen can repaint between heavy steps.
  *
@@ -159,6 +171,17 @@ const nextFrame = () => new Promise((resolve) => {
   requestAnimationFrame(() => setTimeout(go, 0));
   setTimeout(go, 80);
 });
+
+/**
+ * Six line styles at once is not a map, it is a migraine. Start with land,
+ * coasts and the plate edges — the only lines this app is actually about —
+ * and leave the rest in the Detail menu for anyone who wants them.
+ */
+function applyQuietDefaults() {
+  globe.setLayerVisible('graticule', false);
+  globe.setLayerVisible('borders', false);
+  setOrbitVisible(false);
+}
 
 function fillSources(src) {
   $('sourceList').innerHTML = Object.entries({
@@ -198,18 +221,23 @@ function setAnchor(which, anchor, { fly = true } = {}) {
     state.destination = anchor;
     markers.setDestination(anchor ? { vec: anchor.vec, plate: anchor.plate } : null);
   }
+  setOrbitVisible(state.showOrbit);
+
   if (anchor && fly) {
-    const pair = state.mode === 'rendezvous' && state.origin && state.destination
+    const pair = state.mode === 'compare' && state.origin && state.destination
       ? frameBoth(state.origin, state.destination) : null;
-    controls.flyTo(pair || { lon: anchor.lon, lat: anchor.lat, dist: Math.min(controls.target.dist, 3.6) }, 1500);
+    controls.flyTo(pair || { lon: anchor.lon, lat: anchor.lat, dist: Math.min(controls.target.dist, 3.4) }, 1200);
   }
-  // In rendezvous mode, filling "from" should hand the next pick to "to".
-  if (state.mode === 'rendezvous') {
-    state.pickTarget = !state.origin ? 'origin' : !state.destination ? 'dest' : which === 'origin' ? 'dest' : 'origin';
-  }
+
   state.query = '';
+  // Picking is done as soon as the slot this stage was opened for is filled.
+  if (anchor) {
+    const needsSecond = state.mode === 'compare' && !state.destination;
+    state.pickTarget = needsSecond ? 'dest' : 'origin';
+    setStage(needsSecond && which === 'origin' ? 'pick' : 'explore');
+  }
   recompute();
-  render();
+  renderAll();
   writeHash();
 }
 
@@ -223,14 +251,12 @@ function frameBoth(a, b) {
 /* ------------------------------ computation ------------------------------ */
 
 function recompute() {
-  if (state.mode !== 'rendezvous' || !state.origin || !state.destination) {
+  if (state.mode !== 'compare' || !state.origin || !state.destination) {
     state.rendezvous = state.rendezvousPast = state.arrival = state.series = null;
     return;
   }
   const a = state.origin, b = state.destination;
   state.rendezvous = closestApproach(a.vec, a.plate, b.vec, b.plate, { from: 0, to: 1e9, samples: 9000 });
-  // Also look backwards: two places are often drifting apart from a close pass
-  // that already happened, and saying so is more honest than "never".
   state.rendezvousPast = closestApproach(a.vec, a.plate, b.vec, b.plate, { from: -1e9, to: 0, samples: 9000 });
   state.arrival = arrivalAt(a.vec, a.plate, b.vec, { from: -1e9, to: 1e9, samples: 18000 });
   if (!state.rendezvous.sameplate) {
@@ -241,26 +267,128 @@ function recompute() {
   }
 }
 
-/* -------------------------------- render --------------------------------- */
+/* --------------------------------- stages -------------------------------- */
 
-let readoutDirty = true;
-let lastReadout = 0;
-
-function render() {
-  $('pickerBody').innerHTML = renderPicker(state);
-  readoutDirty = true;
-  renderReadoutNow();
-  const input = $('searchInput');
-  if (input && state.query) input.value = state.query;
+/**
+ * The dock's height depends on how its contents wrap, and the legend and the
+ * answer sheet both stack above it on a phone. Measure rather than guess — and
+ * re-measure on a stage change, since the two docks are different heights.
+ */
+function syncDockHeight() {
+  const dock = state.stage === 'pick' ? $('start') : $('timebar');
+  document.documentElement.style.setProperty('--dock-h', `${Math.ceil(dock.offsetHeight)}px`);
 }
 
-function renderReadoutNow() {
-  $('readoutBody').innerHTML = renderReadout(state, { placeIndex, model });
-  readoutDirty = false;
-  lastReadout = performance.now();
+function setStage(stage) {
+  state.stage = stage;
+  document.body.classList.toggle('stage-pick', stage === 'pick');
+  document.body.classList.toggle('stage-explore', stage === 'explore');
+  syncDockHeight();
+  // The globe turns gently while you are choosing, and holds still while you read.
+  controls.autoRotate = stage === 'pick' && !state.origin;
+  if (stage === 'pick') {
+    $('searchResults').innerHTML = '';
+    $('searchInput').value = '';
+    // Focus is a nudge, not a hijack: skip it on touch so no keyboard pops up.
+    if (matchMedia('(hover: hover)').matches) setTimeout(() => $('searchInput').focus(), 340);
+  }
+}
+
+/* -------------------------------- render --------------------------------- */
+
+function renderAll() {
+  renderStart();
+  renderChip();
+  renderPanel();
+  setYears(state.years);
+}
+
+function renderStart() {
+  const second = state.mode === 'compare' && state.pickTarget === 'dest';
+  const changing = !!state.origin && !second;
+
+  $('startTitle').innerHTML = second
+    ? 'Pick a second place'
+    : changing ? 'Pick a different place'
+    : 'Where would&nbsp;I&nbsp;be<em>…?</em>';
+
+  $('startLede').textContent = second
+    ? 'Both places ride their own plate. We’ll work out when — if ever — they come closest together.'
+    : changing ? 'Search, tap the globe, or use your location again.'
+    : 'The ground under your feet is moving — about as fast as your fingernails grow. Pick a spot and we’ll run the clock forward.';
+
+  $('geoBtn').hidden = second;
+  $('geoBtn').disabled = state.locating;
+  $('geoBtn').querySelector('span').innerHTML = state.locating
+    ? 'Finding you…<small>stays on your device</small>'
+    : 'Use my location<small>stays on your device — nothing is sent anywhere</small>';
+  $('searchInput').placeholder = second ? 'Search the second place…' : 'Search a city or town…';
+
+  const keep = state.origin
+    ? `<button class="mini-btn" data-act="keep">← keep ${esc(shortName(second ? state.origin.name : state.origin.name))}</button>`
+    : '';
+  $('start').querySelector('.start-foot').innerHTML =
+    `<button class="mini-btn" data-act="surprise">🎲 Surprise me</button>
+     ${keep || '<span class="tip">…or just tap the globe anywhere</span>'}`;
+}
+
+const shortName = (n) => (n.length > 18 ? n.slice(0, 17) + '…' : n);
+
+function renderChip() {
+  const chip = $('hereChip');
+  const a = state.origin;
+  chip.hidden = !a || state.stage !== 'explore';
+  if (!a) return;
+  $('hereName').textContent = state.mode === 'compare' && state.destination
+    ? `${shortName(a.name)} ⇄ ${shortName(state.destination.name)}`
+    : a.name;
+}
+
+/**
+ * Full rebuild of the answer panel. Only called when the *shape* changes —
+ * a new place, a mode switch, crossing the present day. Scrubbing time never
+ * lands here.
+ */
+let panelSignature = '';
+function renderPanel({ force = false } = {}) {
+  const sig = [
+    state.mode, state.origin?.lon, state.origin?.lat,
+    state.destination?.lon, state.destination?.lat,
+    state.years === 0 ? 'now' : state.years < 0 ? 'past' : 'future',
+  ].join('|');
+  if (!force && sig === panelSignature) return;
+  panelSignature = sig;
+
+  const body = $('readoutBody');
+  body.innerHTML = renderReadout(state, { placeIndex, model });
+  for (const d of body.querySelectorAll('.fold')) d.open = openFolds.has(d.dataset.fold);
+  lastFacts = null;
+}
+
+let lastFacts = null;
+function patchPanel() {
+  if (state.mode !== 'drift' || !state.origin) return;
+  const f = driftFacts(state);
+  if (lastFacts && f.headline === lastFacts.headline && f.v1 === lastFacts.v1) return;
+  lastFacts = f;
+  patch($('readoutBody'), f);
+}
+
+/** Folds hold time-dependent lists; refresh them once the dial settles. */
+let foldTimer;
+function refreshFoldsSoon() {
+  clearTimeout(foldTimer);
+  foldTimer = setTimeout(() => {
+    if (state.mode !== 'drift' || !state.origin) return;
+    const fold = $('readoutBody').querySelector('[data-fold="nbrs"]');
+    if (fold && fold.open) {
+      fold.querySelector('.fold-body').innerHTML = neighbourBody(state, { placeIndex, model });
+    }
+  }, 160);
 }
 
 function setYears(y, { fromSlider = false } = {}) {
+  const crossed = (state.years === 0) !== (y === 0) || Math.sign(state.years) !== Math.sign(y);
   state.years = y;
   globe.setTime(y);
   markers.update(y);
@@ -268,13 +396,14 @@ function setYears(y, { fromSlider = false } = {}) {
   const bar = $('timebar');
   bar.classList.toggle('is-past', y < 0);
   bar.classList.toggle('is-now', y === 0);
-  $('timeValue').textContent = y === 0 ? 'now' : formatYearsShort(y);
-  $('timeDirection').textContent = y === 0 ? 'the present day' : y > 0 ? 'from now' : 'ago';
+  $('timeValue').textContent = y === 0 ? 'today' : formatYearsShort(y);
   const cal = y === 0 ? '' : calendarYear(y);
-  $('timeCalendar').textContent = cal || '';
+  $('timeDirection').textContent = y === 0
+    ? 'drag the dial to travel in time'
+    : `${y > 0 ? 'from now' : 'ago'}${cal ? ' · ' + cal : ''}`;
 
+  $('nowBtn').hidden = y === 0;
   if (!fromSlider) $('timeSlider').value = String(Math.round(yearsToSlider(y)));
-  $('flipBtn').textContent = y < 0 ? '⇄ future' : '⇄ past';
   for (const b of $('presets').children) {
     b.classList.toggle('is-on', Math.abs(Math.abs(y) - Number(b.dataset.years)) < 1);
   }
@@ -287,7 +416,9 @@ function setYears(y, { fromSlider = false } = {}) {
     markers.clearNeighbours();
   }
 
-  readoutDirty = true;
+  if (crossed) renderPanel();
+  patchPanel();
+  refreshFoldsSoon();
 }
 
 /* ------------------------------- labels ---------------------------------- */
@@ -296,7 +427,7 @@ const LABEL_STYLE = {
   origin: { color: COLORS.origin, text: () => state.origin?.name || '', sub: () => 'today' },
   future: { color: COLORS.future, text: () => formatYearsShort(state.years), sub: () => futureCoordText() },
   destination: { color: COLORS.destination, text: () => state.destination?.name || '', sub: () => '' },
-  pole: { color: COLORS.pole, text: () => 'Euler pole', sub: () => state.origin ? `${state.origin.plate.name} plate` : '' },
+  pole: { color: COLORS.pole, text: () => 'the spindle', sub: () => state.origin ? `${state.origin.plate.name} plate` : '' },
 };
 
 function futureCoordText() {
@@ -338,17 +469,6 @@ function updateLabels() {
 function buildTimeUI() {
   $('presets').innerHTML = PRESETS
     .map(([label, y]) => `<button data-years="${y}">${label}</button>`).join('');
-
-  $('trackTicks').innerHTML = [
-    ...TICKS.map((y) => tickHTML(-y)),
-    `<span style="left:50%">now</span>`,
-    ...TICKS.map((y) => tickHTML(y)),
-  ].join('');
-}
-
-function tickHTML(y) {
-  const pct = 50 + (yearsToSlider(y) / SLIDER_MAX) * 50;
-  return `<span style="left:${pct.toFixed(2)}%">${formatYearsShort(y)}</span>`;
 }
 
 function bindEvents() {
@@ -368,63 +488,65 @@ function bindEvents() {
     writeHash();
   });
 
-  $('flipBtn').addEventListener('click', () => {
-    stopPlaying();
-    setYears(-state.years || 0);
-    writeHash();
-  });
-
   $('nowBtn').addEventListener('click', () => { stopPlaying(); setYears(0); writeHash(); });
   $('playBtn').addEventListener('click', togglePlay);
 
-  // Panels use event delegation — their markup is re-rendered wholesale.
   document.addEventListener('click', onDelegatedClick);
-  document.addEventListener('input', (e) => {
-    if (e.target.id === 'searchInput') onSearch(e.target.value);
-  });
+  $('searchInput').addEventListener('input', (e) => onSearch(e.target.value));
   document.addEventListener('keydown', (e) => {
     if (e.target.id === 'searchInput' && e.key === 'Enter') {
       const first = $('searchResults')?.querySelector('button');
       if (first) first.click();
     }
-    if (e.key === 'Escape') { closeModal(); $('layersMenu').hidden = true; }
-    if (e.key === ' ' && e.target === document.body) { e.preventDefault(); togglePlay(); }
+    if (e.key === 'Escape') {
+      closeModal();
+      $('detailMenu').hidden = true;
+      if (state.stage === 'pick' && state.origin) setStageAndRender('explore');
+    }
+    if (e.key === ' ' && e.target === document.body && state.stage === 'explore') {
+      e.preventDefault(); togglePlay();
+    }
   });
 
-  // Globe interaction: a tap (not a drag) drops a pin.
+  // Remember which folds the reader opened, so a rebuild does not close them.
+  $('readoutBody').addEventListener('toggle', (e) => {
+    const d = e.target.closest('.fold');
+    if (!d) return;
+    if (d.open) { openFolds.add(d.dataset.fold); refreshFoldsSoon(); }
+    else openFolds.delete(d.dataset.fold);
+  }, true);
+
+  // Globe interaction: a tap (not a drag) drops a pin. No camera move — the
+  // globe jumping away from where you just tapped is disorienting.
   $('globe').addEventListener('click', (e) => {
     if (!controls.wasClick) return;
     const hit = globe.pick(e.clientX, e.clientY);
     if (!hit) return;
-    const anchor = makeAnchor(hit.lon, hit.lat);
-    const slot = state.mode === 'rendezvous' ? state.pickTarget : 'origin';
-    setAnchor(slot === 'dest' ? 'dest' : 'origin', anchor, { fly: false });
+    const slot = state.mode === 'compare' && state.pickTarget === 'dest' ? 'dest' : 'origin';
+    setAnchor(slot, makeAnchor(hit.lon, hit.lat), { fly: false });
   });
 
-  for (const b of document.querySelectorAll('.mode')) {
-    b.addEventListener('click', () => setMode(b.dataset.mode));
-  }
-
-  $('layersBtn').addEventListener('click', (e) => {
+  $('detailBtn').addEventListener('click', (e) => {
     e.stopPropagation();
-    const m = $('layersMenu');
+    const m = $('detailMenu');
     m.hidden = !m.hidden;
-    $('layersBtn').classList.toggle('is-on', !m.hidden);
+    $('detailBtn').classList.toggle('is-on', !m.hidden);
   });
-  $('layersMenu').addEventListener('click', (e) => e.stopPropagation());
+  $('detailMenu').addEventListener('click', (e) => e.stopPropagation());
   document.addEventListener('click', () => {
-    $('layersMenu').hidden = true;
-    $('layersBtn').classList.remove('is-on');
+    $('detailMenu').hidden = true;
+    $('detailBtn').classList.remove('is-on');
   });
-  $('layersMenu').addEventListener('change', (e) => {
+  $('detailMenu').addEventListener('change', (e) => {
     const layer = e.target.dataset.layer;
-    if (layer === 'orbit') {
-      state.showOrbit = e.target.checked;
-      markers.circle.mesh.visible = e.target.checked && !!state.origin;
-      markers.polePin.visible = e.target.checked && !!state.origin;
-    } else {
-      globe.setLayerVisible(layer, e.target.checked);
-    }
+    if (layer === 'orbit') { state.showOrbit = e.target.checked; setOrbitVisible(e.target.checked); }
+    else globe.setLayerVisible(layer, e.target.checked);
+  });
+
+  $('legendToggle').addEventListener('click', () => {
+    const l = $('legend');
+    const collapsed = l.classList.toggle('collapsed');
+    $('legendToggle').setAttribute('aria-expanded', String(!collapsed));
   });
 
   $('aboutBtn').addEventListener('click', () => { $('aboutModal').hidden = false; });
@@ -433,26 +555,35 @@ function bindEvents() {
   });
 
   $('sheetToggle').addEventListener('click', () => {
-    $('panels').classList.toggle('collapsed');
+    $('readout').classList.toggle('hidden-sheet');
   });
   const mq = window.matchMedia('(max-width: 900px)');
   const applyMQ = () => { $('sheetToggle').hidden = !mq.matches; };
   mq.addEventListener('change', applyMQ); applyMQ();
 
-  // The time bar's height depends on how the presets wrap, so measure it
-  // rather than guessing: the bottom sheet sits directly on top of it.
-  const timebar = $('timebar');
-  const syncTimebarHeight = () => {
-    document.documentElement.style.setProperty('--timebar-h', `${Math.ceil(timebar.offsetHeight)}px`);
-  };
-  if (window.ResizeObserver) new ResizeObserver(syncTimebarHeight).observe(timebar);
-  syncTimebarHeight();
+  if (window.ResizeObserver) {
+    const ro = new ResizeObserver(syncDockHeight);
+    ro.observe($('timebar')); ro.observe($('start'));
+  }
+  syncDockHeight();
 
-  window.addEventListener('resize', () => { globe.resize(); syncTimebarHeight(); });
+  window.addEventListener('resize', () => { globe.resize(); syncDockHeight(); });
   window.addEventListener('hashchange', restoreFromHash);
 }
 
 const closeModal = () => { $('aboutModal').hidden = true; };
+
+function setStageAndRender(stage) {
+  setStage(stage);
+  renderStart();
+  renderChip();
+}
+
+function setOrbitVisible(on) {
+  const live = on && !!state.origin;
+  markers.circle.mesh.visible = live;
+  markers.polePin.visible = live;
+}
 
 function onDelegatedClick(e) {
   const btn = e.target.closest('[data-act], [data-place]');
@@ -461,65 +592,55 @@ function onDelegatedClick(e) {
   if (btn.dataset.place !== undefined) {
     const place = placeIndex.places[Number(btn.dataset.place)];
     const anchor = makeAnchor(place.lon, place.lat, { name: place.label, place });
-    const slot = state.mode === 'rendezvous' ? state.pickTarget : 'origin';
-    setAnchor(slot === 'dest' ? 'dest' : 'origin', anchor);
-    const box = $('searchResults');
-    if (box) box.innerHTML = '';
+    const slot = state.mode === 'compare' && state.pickTarget === 'dest' ? 'dest' : 'origin';
+    setAnchor(slot, anchor);
+    $('searchResults').innerHTML = '';
     return;
   }
 
   switch (btn.dataset.act) {
     case 'geolocate': return geolocate();
-    case 'clear-origin': state.pickTarget = 'origin'; setAnchor('origin', null); break;
-    case 'clear-dest': state.pickTarget = 'dest'; setAnchor('dest', null); break;
-    case 'target-origin': state.pickTarget = 'origin'; render(); break;
-    case 'target-dest': state.pickTarget = 'dest'; render(); break;
-    case 'swap': {
-      const a = state.origin, b = state.destination;
-      state.origin = b; state.destination = a;
-      markers.setOrigin(b ? { vec: b.vec, plate: b.plate } : null);
-      markers.setDestination(a ? { vec: a.vec, plate: a.plate } : null);
-      recompute(); render(); writeHash();
-      break;
-    }
     case 'surprise': return surprise();
-    case 'share': return share();
+    case 'repick':
+      state.pickTarget = 'origin';
+      return setStageAndRender('pick');
+    case 'keep':
+      return setStageAndRender('explore');
+    case 'compare':
+      state.mode = 'compare';
+      state.pickTarget = 'dest';
+      document.body.classList.replace('mode-drift', 'mode-compare');
+      panelSignature = '';
+      return setStageAndRender('pick');
+    case 'uncompare':
+      state.mode = 'drift';
+      state.destination = null;
+      state.pickTarget = 'origin';
+      markers.setDestination(null);
+      document.body.classList.replace('mode-compare', 'mode-drift');
+      recompute();
+      renderAll();
+      return writeHash();
+    case 'pick-origin':
+      state.pickTarget = 'origin';
+      return setStageAndRender('pick');
+    case 'pick-dest':
+      state.pickTarget = 'dest';
+      return setStageAndRender('pick');
   }
-}
-
-function setMode(mode) {
-  if (state.mode === mode) return;
-  state.mode = mode;
-  state.query = '';
-  for (const b of document.querySelectorAll('.mode')) {
-    const on = b.dataset.mode === mode;
-    b.classList.toggle('is-on', on);
-    b.setAttribute('aria-selected', String(on));
-  }
-  if (mode === 'drift') {
-    markers.setDestination(null);
-    state.destination = null;
-  } else {
-    state.pickTarget = state.origin ? 'dest' : 'origin';
-  }
-  recompute();
-  setYears(state.years);
-  render();
-  writeHash();
 }
 
 function onSearch(q) {
   state.query = q;
   const box = $('searchResults');
-  if (!box) return;
-  const hits = placeIndex.search(q, 8);
+  const hits = placeIndex.search(q, 7);
   box.innerHTML = hits.length ? renderSearchResults(hits)
     : q.trim().length >= 2 ? '<button disabled style="color:var(--faint);cursor:default">No match — try a bigger town nearby</button>' : '';
 }
 
 function geolocate() {
   if (!navigator.geolocation) return toast('This browser has no location support.', true);
-  state.locating = true; render();
+  state.locating = true; renderStart();
   navigator.geolocation.getCurrentPosition(
     (pos) => {
       state.locating = false;
@@ -528,7 +649,7 @@ function geolocate() {
       toast('Found you. Nothing left your device.');
     },
     (err) => {
-      state.locating = false; render();
+      state.locating = false; renderStart();
       toast(err.code === 1
         ? 'Location permission denied — search for a place instead.'
         : location.protocol !== 'https:' && location.hostname !== 'localhost'
@@ -546,19 +667,8 @@ function surprise() {
   const name = SURPRISES[Math.floor(Math.random() * SURPRISES.length)];
   const hit = placeIndex.search(name, 1)[0]
     || placeIndex.places[Math.floor(Math.random() * placeIndex.places.length)];
-  setAnchor(state.mode === 'rendezvous' && state.pickTarget === 'dest' ? 'dest' : 'origin',
-    makeAnchor(hit.lon, hit.lat, { name: hit.label, place: hit }));
-  if (state.years === 0) setYears(5e7);
-}
-
-async function share() {
-  writeHash();
-  try {
-    await navigator.clipboard.writeText(location.href);
-    toast('Link copied — it remembers the place and the year.');
-  } catch {
-    toast('Copy the address bar to share this view.');
-  }
+  const slot = state.mode === 'compare' && state.pickTarget === 'dest' ? 'dest' : 'origin';
+  setAnchor(slot, makeAnchor(hit.lon, hit.lat, { name: hit.label, place: hit }));
 }
 
 let toastTimer;
@@ -574,7 +684,8 @@ function toast(msg, warn = false) {
 /* --------------------------------- play ---------------------------------- */
 
 let playFrom = 0, playTo = 0, playStart = 0;
-const PLAY_MS = 6500;
+const PLAY_MS = 7200;
+const easeInOut = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
 
 function togglePlay() {
   if (state.playing) return stopPlaying();
@@ -630,25 +741,28 @@ function restoreFromHash() {
     return isFinite(lat) && isFinite(lon) && Math.abs(lat) <= 90 ? { lat, lon } : null;
   };
   const m = p.get('m');
-  if (m === 'rendezvous' || m === 'drift') state.mode = m;
-  for (const b of document.querySelectorAll('.mode')) {
-    b.classList.toggle('is-on', b.dataset.mode === state.mode);
-  }
+  if (m === 'compare' || m === 'drift') state.mode = m;
+  document.body.classList.toggle('mode-compare', state.mode === 'compare');
+  document.body.classList.toggle('mode-drift', state.mode === 'drift');
+
   const o = coord(p.get('o'));
   if (o) {
     state.origin = makeAnchor(o.lon, o.lat);
     markers.setOrigin({ vec: state.origin.vec, plate: state.origin.plate });
-    controls.flyTo({ lon: o.lon, lat: o.lat, dist: 3.6 }, 1800);
+    controls.flyTo({ lon: o.lon, lat: o.lat, dist: 3.4 }, 1500);
   }
   const d = coord(p.get('d'));
   if (d) {
     state.destination = makeAnchor(d.lon, d.lat);
     markers.setDestination({ vec: state.destination.vec, plate: state.destination.plate });
   }
+  setOrbitVisible(state.showOrbit);
   const t = Number(p.get('t'));
+  state.years = isFinite(t) ? Math.max(-MAX_YEARS, Math.min(MAX_YEARS, t)) : 0;
   recompute();
-  setYears(isFinite(t) ? Math.max(-MAX_YEARS, Math.min(MAX_YEARS, t)) : 0);
-  render();
+  setStage(state.origin ? 'explore' : 'pick');
+  panelSignature = '';
+  renderAll();
 }
 
 /* -------------------------------- the loop -------------------------------- */
@@ -665,7 +779,7 @@ function startLoop() {
         setYears(roundYears(sliderToYears(playTo)));
         stopPlaying();
       } else {
-        const v = playFrom + (playTo - playFrom) * t;
+        const v = playFrom + (playTo - playFrom) * easeInOut(t);
         $('timeSlider').value = String(Math.round(v));
         setYears(roundYears(sliderToYears(v)), { fromSlider: true });
       }
@@ -674,9 +788,6 @@ function startLoop() {
     controls.update(dt);
     globe.render(now / 1000);
     updateLabels();
-
-    // Panels are expensive to rebuild; 12/sec is plenty while scrubbing.
-    if (readoutDirty && now - lastReadout > 85) renderReadoutNow();
 
     requestAnimationFrame(frame);
   };

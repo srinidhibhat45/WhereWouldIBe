@@ -24,7 +24,7 @@ export class GlobeControls {
 
     this.minDist = 1.35;
     this.maxDist = 7.0;
-    this.autoRotate = true;
+    this.autoRotate = false;   // switched on only while the reader is choosing a place
     this.autoRotateSpeed = 1.6;   // degrees per second
     this.idleDelay = 2500;
 

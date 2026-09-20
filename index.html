@@ -12,7 +12,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="css/style.css" />
 </head>
-<body>
+<body class="stage-pick mode-drift">
 
 <canvas id="globe"></canvas>
 <div id="labels" aria-hidden="true"></div>
@@ -27,7 +27,7 @@
   </div>
 </div>
 
-<!-- ───────────────────────────── chrome ────────────────────────────── -->
+<!-- ───────────────────────────── top bar ───────────────────────────── -->
 <header id="topbar">
   <div class="brand">
     <svg viewBox="0 0 32 32" class="brand-mark" aria-hidden="true">
@@ -38,19 +38,15 @@
     <h1>Where Would I Be<em>…?</em></h1>
   </div>
 
-  <nav class="modes" role="tablist" aria-label="Mode">
-    <button class="mode is-on" data-mode="drift" role="tab" aria-selected="true">
-      <span class="mode-k">Fast-forward</span>
-      <span class="mode-s">where does my ground go?</span>
-    </button>
-    <button class="mode" data-mode="rendezvous" role="tab" aria-selected="false">
-      <span class="mode-k">Rendezvous</span>
-      <span class="mode-s">when do two places meet?</span>
-    </button>
-  </nav>
+  <!-- Shown only once something is pinned: what we are talking about. -->
+  <div id="hereChip" class="here-chip" hidden>
+    <span class="here-dot"></span>
+    <span class="here-name" id="hereName"></span>
+    <button data-act="repick" class="here-change">change</button>
+  </div>
 
   <div class="top-actions">
-    <button id="layersBtn" class="icon-btn" title="Layers" aria-label="Layers">
+    <button id="detailBtn" class="icon-btn" title="What’s on the globe" aria-label="What’s on the globe">
       <svg viewBox="0 0 24 24"><path d="M12 3 3 8l9 5 9-5-9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5"/></svg>
     </button>
     <button id="aboutBtn" class="icon-btn" title="About" aria-label="About">
@@ -59,63 +55,96 @@
   </div>
 </header>
 
-<div id="layersMenu" class="popover" hidden>
-  <h3>Layers</h3>
-  <label><input type="checkbox" data-layer="plateColors" checked><span>Plate colours</span></label>
-  <label><input type="checkbox" data-layer="plateEdges" checked><span>Plate boundaries</span></label>
-  <label><input type="checkbox" data-layer="land" checked><span>Land</span></label>
-  <label><input type="checkbox" data-layer="borders" checked><span>Country borders</span></label>
-  <label><input type="checkbox" data-layer="graticule" checked><span>Lat / long grid</span></label>
-  <label><input type="checkbox" data-layer="orbit" checked><span>Euler orbit path</span></label>
-  <h3 class="sep">Boundary key</h3>
-  <ul class="key">
-    <li><i style="--c:#ff7a3d"></i>Spreading — new crust</li>
-    <li><i style="--c:#6fa4ff"></i>Colliding — crust destroyed</li>
-    <li><i style="--c:#ffd24a"></i>Sliding past</li>
+<!-- ─────────────────────── step one: pick a place ──────────────────── -->
+<section id="start" class="start">
+  <h2 class="start-title" id="startTitle">Where would&nbsp;I&nbsp;be<em>…?</em></h2>
+  <p class="start-lede" id="startLede">
+    The ground under your feet is moving — about as fast as your fingernails grow.
+    Pick a spot and we’ll run the clock forward.
+  </p>
+
+  <button class="big-btn" data-act="geolocate" id="geoBtn">
+    <svg viewBox="0 0 24 24"><path d="M12 21s7-6.4 7-11a7 7 0 1 0-14 0c0 4.6 7 11 7 11Z"/><circle cx="12" cy="10" r="2.6"/></svg>
+    <span>Use my location<small>stays on your device — nothing is sent anywhere</small></span>
+  </button>
+
+  <div class="or">or</div>
+
+  <div class="search">
+    <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>
+    <input id="searchInput" type="search" autocomplete="off" spellcheck="false"
+           placeholder="Search a city or town…" aria-label="Search for a place" />
+  </div>
+  <div class="results" id="searchResults"></div>
+
+  <div class="start-foot">
+    <button class="mini-btn" data-act="surprise">🎲 Surprise me</button>
+    <span class="tip">…or just tap the globe anywhere</span>
+  </div>
+</section>
+
+<!-- ──────────────────────── what the lines mean ────────────────────── -->
+<div id="legend" class="legend">
+  <button class="legend-h" id="legendToggle" aria-expanded="true">
+    <span>What the coloured lines mean</span>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+  </button>
+  <ul class="legend-list">
+    <li><i style="--c:var(--rift)"></i><b>Pulling apart</b><span>new ground is made here</span></li>
+    <li><i style="--c:var(--crush)"></i><b>Crashing together</b><span>mountains, trenches, quakes</span></li>
+    <li><i style="--c:var(--slide)"></i><b>Sliding past</b><span>grinding sideways</span></li>
   </ul>
 </div>
 
-<!-- ───────────────────────────── panels ────────────────────────────── -->
-<div id="panels">
-  <aside id="picker" class="panel">
-    <div id="pickerBody"></div>
-  </aside>
+<!-- ───────────────────────── step two: the answer ──────────────────── -->
+<aside id="readout" class="panel" aria-live="polite">
+  <div id="readoutBody"></div>
+</aside>
 
-  <aside id="readout" class="panel">
-    <div id="readoutBody"></div>
-  </aside>
-</div>
+<button id="sheetToggle" class="sheet-toggle" hidden aria-label="Show or hide the details">
+  <span></span>
+</button>
 
-<button id="sheetToggle" class="sheet-toggle" hidden><span></span></button>
-
-<!-- ─────────────────────────── time machine ────────────────────────── -->
+<!-- ─────────────────────────── the time dial ───────────────────────── -->
 <footer id="timebar">
   <div class="time-head">
     <div class="time-now">
-      <span class="time-label" id="timeDirection">from now</span>
-      <strong class="time-value" id="timeValue">now</strong>
-      <span class="time-cal" id="timeCalendar"></span>
+      <strong class="time-value" id="timeValue">today</strong>
+      <span class="time-label" id="timeDirection">drag to travel in time</span>
     </div>
     <div class="time-controls">
+      <button id="nowBtn" class="ghost" title="Back to the present day">Today</button>
       <button id="playBtn" class="play" aria-label="Play through time">
         <svg viewBox="0 0 24 24" class="i-play"><path d="M8 5v14l11-7z"/></svg>
         <svg viewBox="0 0 24 24" class="i-pause" hidden><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
         <span>Play</span>
       </button>
-      <button id="flipBtn" class="ghost" title="Flip between future and past">⇄ past</button>
-      <button id="nowBtn" class="ghost">Now</button>
     </div>
   </div>
 
   <div class="time-track">
-    <div class="track-ticks" id="trackTicks"></div>
+    <span class="track-end left">← past</span>
+    <span class="track-end right">future →</span>
     <input id="timeSlider" type="range" min="-2000" max="2000" step="1" value="0"
-           aria-label="Time offset from today" />
+           aria-label="How far through time" />
     <div class="track-centre" aria-hidden="true"></div>
   </div>
 
   <div class="presets" id="presets"></div>
 </footer>
+
+<!-- ────────────────────────── globe detail menu ────────────────────── -->
+<div id="detailMenu" class="popover" hidden>
+  <h3>Show on the globe</h3>
+  <label><input type="checkbox" data-layer="plateColors" checked><span>Tint each plate</span></label>
+  <label><input type="checkbox" data-layer="plateEdges" checked><span>Plate edges</span></label>
+  <label><input type="checkbox" data-layer="land" checked><span>Land</span></label>
+  <label><input type="checkbox" data-layer="borders"><span>Country borders</span></label>
+  <label><input type="checkbox" data-layer="graticule"><span>Lat / long grid</span></label>
+  <label><input type="checkbox" data-layer="orbit"><span>The circle your plate turns on</span></label>
+  <p class="popover-note">Everything here is off-by-default detail. The globe reads more
+    clearly without it.</p>
+</div>
 
 <!-- ───────────────────────────── about ─────────────────────────────── -->
 <div id="aboutModal" class="modal" hidden>
@@ -132,9 +161,9 @@
        <strong>NNR-MORVEL56</strong> — 56 plates, published by Argus, Gordon &amp; DeMets in
        2011 — together with Peter Bird's <strong>PB2002</strong> plate outlines.</p>
     <p>Boundary colours aren't painted on. For every segment of every plate outline the app
-       samples the crust 40&nbsp;km either side, works out the relative velocity of the two
-       plates, and splits it into opening and sliding. That is why the East Pacific Rise
-       glows and the Japan Trench does not.</p>
+       samples the crust either side, works out the relative velocity of the two plates, and
+       splits it into opening and sliding. That is why the East Pacific Rise glows and the
+       Japan Trench does not.</p>
 
     <h3>How much to trust it</h3>
     <p>The model describes motion averaged over roughly the last 780,000 years. Running it

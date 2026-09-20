@@ -558,7 +558,8 @@ export class Globe {
     // National borders stop meaning anything long before the plates do.
     const fade = 1 - Math.min(1, Math.max(0, (Math.log10(Math.max(Math.abs(years), 1)) - 4.2) / 1.6));
     this.borderMat.uniforms.uOpacity.value = 0.20 * fade;
-    this.layers.borders.visible = fade > 0.02;
+    // …unless the reader has switched them off entirely.
+    this.layers.borders.visible = this._bordersOn !== false && fade > 0.02;
   }
 
   setLayerVisible(name, visible) {

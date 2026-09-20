@@ -250,10 +250,12 @@ export function project(point, plate, years) {
 /** Climate band from latitude — crude, but it is what a globe actually shows. */
 export function climateBand(lat) {
   const a = Math.abs(lat);
-  if (a < 10) return { name: 'Equatorial', hint: 'rainforest, year-round heat' };
-  if (a < 23.44) return { name: 'Tropical', hint: 'inside the tropics, wet and dry seasons' };
-  if (a < 35) return { name: 'Subtropical', hint: 'deserts and mild winters' };
-  if (a < 50) return { name: 'Temperate', hint: 'four distinct seasons' };
-  if (a < 66.56) return { name: 'Subpolar', hint: 'long cold winters, short summers' };
-  return { name: 'Polar', hint: 'inside the polar circle — midnight sun and polar night' };
+  // `name` labels a field; `zone` is the same thing worded to drop into a
+  // sentence — "in the tropics" rather than the fragment "in the tropical".
+  if (a < 10) return { name: 'Equatorial', zone: 'the equatorial belt', hint: 'rainforest, year-round heat' };
+  if (a < 23.44) return { name: 'Tropical', zone: 'the tropics', hint: 'inside the tropics, wet and dry seasons' };
+  if (a < 35) return { name: 'Subtropical', zone: 'the subtropics', hint: 'deserts and mild winters' };
+  if (a < 50) return { name: 'Temperate', zone: 'temperate latitudes', hint: 'four distinct seasons' };
+  if (a < 66.56) return { name: 'Subpolar', zone: 'the subpolar north', hint: 'long cold winters, short summers' };
+  return { name: 'Polar', zone: 'the polar circle', hint: 'midnight sun and polar night' };
 }
